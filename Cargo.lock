@@ -3251,7 +3251,9 @@ dependencies = [
  "anyhow",
  "async-ssh2-tokio",
  "chrono",
+ "glob",
  "serde",
+ "serde_json",
  "tokio",
 ]
 
