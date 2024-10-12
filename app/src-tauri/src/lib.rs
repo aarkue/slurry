@@ -1,3 +1,5 @@
+use std::{fs::File, io::BufWriter};
+
 use anyhow::Error;
 use rust_slurm::{self, get_squeue_res, login_with_cfg, ConnectionConfig};
 use serde::Serialize;
@@ -11,6 +13,7 @@ async fn greet(name: String) -> String {
 async fn test_squeue(cfg: ConnectionConfig) -> Result<String, CmdError> {
     let client = login_with_cfg(&cfg).await?;
     let (time, jobs) = get_squeue_res(&client).await?;
+    serde_json::to_writer_pretty(BufWriter::new(File::create(format!("{}.json",time.to_rfc3339())).unwrap()),&jobs).unwrap();
     Ok(format!("Got {} jobs at {}.",jobs.len(),time.to_rfc3339()))
 }
 

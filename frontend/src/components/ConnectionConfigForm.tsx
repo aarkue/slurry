@@ -6,12 +6,13 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { AppContext, connectionFormSchema } from "@/AppContext";
-import { useContext } from "react";
+import { useContext, useState } from "react";
 import toast from "react-hot-toast";
 
 
 export default function ConnectionConfigForm() {
     const { testSqueue } = useContext(AppContext);
+    const [isLoading, setIsLoading] = useState(false);
 
     const form = useForm<z.infer<typeof connectionFormSchema>>({
         resolver: zodResolver(connectionFormSchema),
@@ -22,20 +23,23 @@ export default function ConnectionConfigForm() {
         },
     })
 
-
     function onSubmit(values: z.infer<typeof connectionFormSchema>) {
         console.log(values);
-        toast.promise(testSqueue(values), { loading: "Loading...", error: (e) => <div>Failed!<br/>{e.toString()}</div>, success: s => <div>
-            Success!
-            <br/>
-            {s}
-        </div>});
+        setIsLoading(true);
+        toast.promise(testSqueue(values), {
+            loading: "Loading...", error: (e) => <div>Failed!<br />{e.toString()}</div>, success: s => <div>
+                Success!
+                <br />
+                {s}
+            </div>
+        }).finally(() => {
+            setIsLoading(false);
+        });
     }
 
     return <Form {...form}><form className="mx-auto max-w-xl mt-4" onSubmit={form.handleSubmit(onSubmit)} >
         <div>
             <div className="flex gap-x-2">
-
                 <FormField
                     control={form.control}
                     name="host.0"
@@ -167,6 +171,6 @@ export default function ConnectionConfigForm() {
 
         </div>
 
-        <Button type="submit">Submit</Button>
+        <Button type="submit" disabled={isLoading}>Submit</Button>
     </form></Form>
 }
