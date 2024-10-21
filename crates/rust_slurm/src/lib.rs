@@ -188,10 +188,12 @@ impl SqueueRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum JobState {
     RUNNING,
     PENDING,
+    COMPLETING,
+    OTHER(String)
 }
 
 impl JobState {
@@ -199,11 +201,13 @@ impl JobState {
         match s {
             "RUNNING" => Ok(Self::RUNNING),
             "PENDING" => Ok(Self::PENDING),
-            s => Err(Error::msg(format!("Job state {s} is not known."))),
+            "COMPLETING" => Ok(Self::COMPLETING),
+            s => {
+                Ok(Self::OTHER(s.to_string()))
+            },
         }
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
@@ -380,11 +384,8 @@ mod tests {
                     println!("{:?}", path);
                     let buf_reader = BufReader::new(File::open(path)?);
                     let data: Vec<SqueueRow> = serde_json::from_reader(buf_reader)?;
-                    let states: HashSet<JobState> = data
-                        .iter()
-                        .enumerate()
-                        .map(|(_i, d)| d.state)
-                        .collect();
+                    let states: HashSet<JobState> =
+                        data.iter().enumerate().map(|(_i, d)| d.state.clone()).collect();
                     println!("{:?}", states);
                 }
                 Err(err) => eprintln!("Err {:?}", err),
