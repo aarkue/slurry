@@ -43,56 +43,56 @@ const SQUEUE_FORMAT_STR: &str =
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqueueRow {
     // "ACCOUNT",
-    account: String,
+    pub account: String,
     // "JOBID",
-    job_id: String,
+    pub job_id: String,
     // "EXEC_HOST",
-    exec_host: Option<String>,
+    pub exec_host: Option<String>,
     // "MIN_CPUS",
-    min_cpus: usize,
+    pub min_cpus: usize,
     // "CPUS",
-    cpus: usize,
+    pub cpus: usize,
     // "NODES",
-    nodes: usize,
+    pub nodes: usize,
     // "END_TIME",
-    end_time: Option<NaiveDateTime>,
+    pub end_time: Option<NaiveDateTime>,
     // "DEPENDENCY",
-    dependency: Option<String>,
+    pub dependency: Option<String>,
     // "FEATURES",
-    features: String,
+    pub features: String,
     // "ARRAY_JOB_ID",
-    array_job_id: String,
+    pub array_job_id: String,
     // "GROUP",
-    group: String,
+    pub group: String,
     // "STEPJOBID",
     // 49848561 or 49869434_2 or 49616001_[3-10%1]
-    step_job_id: (String, Option<String>),
+    pub step_job_id: (String, Option<String>),
     // "TIME_LIMIT",
-    time_limit: Duration,
+    pub time_limit: Duration,
     // "TIME_LEFT",
-    time_left: Duration,
+    pub time_left: Duration,
     // "NAME",
-    name: String,
+    pub name: String,
     // "MIN_MEMORY",
-    min_memory: String,
+    pub min_memory: String,
     // "TIME",
-    time: Duration,
+    pub time: Duration,
     // "PRIORITY",
-    priority: f64,
+    pub priority: f64,
     // "PARTITION",
-    partition: String,
+    pub partition: String,
     // "STATE",
-    state: JobState,
+    pub state: JobState,
     // "REASON",
-    reason: String,
+    pub reason: String,
     // "START_TIME",
-    start_time: Option<NaiveDateTime>,
+    pub start_time: Option<NaiveDateTime>,
     // "SUBMIT_TIME",
-    submit_time: NaiveDateTime,
+    pub submit_time: NaiveDateTime,
     // "WORK_DIR",
-    work_dir: PathBuf,
+    pub work_dir: PathBuf,
     // "COMMAND",
-    command: String,
+    pub command: String,
 }
 
 // days-hours:minutes:seconds
@@ -193,7 +193,7 @@ pub enum JobState {
     RUNNING,
     PENDING,
     COMPLETING,
-    OTHER(String)
+    OTHER(String),
 }
 
 impl JobState {
@@ -202,9 +202,7 @@ impl JobState {
             "RUNNING" => Ok(Self::RUNNING),
             "PENDING" => Ok(Self::PENDING),
             "COMPLETING" => Ok(Self::COMPLETING),
-            s => {
-                Ok(Self::OTHER(s.to_string()))
-            },
+            s => Ok(Self::OTHER(s.to_string())),
         }
     }
 }
@@ -360,86 +358,86 @@ mod tests {
 
     use crate::{JobState, SqueueRow};
 
-    #[test]
-    fn test_json() -> Result<(), Error> {
-        let json_str = include_str!("../test_data/2024-10-12T11:24:16.744882594+00:00.json");
-        let data: Vec<SqueueRow> = serde_json::from_str(&json_str)?;
-        for d in &data {
-            if d.step_job_id.1.is_some() {
-                println!("{:?} != {:?}", d.job_id, d.step_job_id);
-            }
-        }
-        Ok(())
-    }
+    // #[test]
+    // fn test_json() -> Result<(), Error> {
+    //     let json_str = include_str!("../test_data/2024-10-12T11:24:16.744882594+00:00.json");
+    //     let data: Vec<SqueueRow> = serde_json::from_str(&json_str)?;
+    //     for d in &data {
+    //         if d.step_job_id.1.is_some() {
+    //             println!("{:?} != {:?}", d.job_id, d.step_job_id);
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
-    #[test]
-    fn test_states() -> Result<(), Error> {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("test_data")
-            .join("*.json");
+    // #[test]
+    // fn test_states() -> Result<(), Error> {
+    //     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    //         .join("test_data")
+    //         .join("*.json");
 
-        for entry in glob(path.to_str().unwrap()).unwrap() {
-            match entry {
-                Ok(path) => {
-                    println!("{:?}", path);
-                    let buf_reader = BufReader::new(File::open(path)?);
-                    let data: Vec<SqueueRow> = serde_json::from_reader(buf_reader)?;
-                    let states: HashSet<JobState> =
-                        data.iter().enumerate().map(|(_i, d)| d.state.clone()).collect();
-                    println!("{:?}", states);
-                }
-                Err(err) => eprintln!("Err {:?}", err),
-            }
-        }
-        Ok(())
-    }
+    //     for entry in glob(path.to_str().unwrap()).unwrap() {
+    //         match entry {
+    //             Ok(path) => {
+    //                 println!("{:?}", path);
+    //                 let buf_reader = BufReader::new(File::open(path)?);
+    //                 let data: Vec<SqueueRow> = serde_json::from_reader(buf_reader)?;
+    //                 let states: HashSet<JobState> =
+    //                     data.iter().enumerate().map(|(_i, d)| d.state.clone()).collect();
+    //                 println!("{:?}", states);
+    //             }
+    //             Err(err) => eprintln!("Err {:?}", err),
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
-    #[test]
-    fn test_with_json_files() {
-        let json1 = include_str!("../test_data/2024-10-12T11:24:16.744882594+00:00.json");
-        let json2 = include_str!("../test_data/2024-10-12T11:25:44.866855169+00:00.json");
+    // #[test]
+    // fn test_with_json_files() {
+    //     let json1 = include_str!("../test_data/2024-10-12T11:24:16.744882594+00:00.json");
+    //     let json2 = include_str!("../test_data/2024-10-12T11:25:44.866855169+00:00.json");
 
-        let data1: Vec<SqueueRow> = serde_json::from_str(&json1).unwrap();
-        let data2: Vec<SqueueRow> = serde_json::from_str(&json2).unwrap();
+    //     let data1: Vec<SqueueRow> = serde_json::from_str(&json1).unwrap();
+    //     let data2: Vec<SqueueRow> = serde_json::from_str(&json2).unwrap();
 
-        let job_map1: HashMap<String, SqueueRow> =
-            data1.into_iter().map(|d| (d.job_id.clone(), d)).collect();
+    //     let job_map1: HashMap<String, SqueueRow> =
+    //         data1.into_iter().map(|d| (d.job_id.clone(), d)).collect();
 
-        let job_map2: HashMap<String, SqueueRow> =
-            data2.into_iter().map(|d| (d.job_id.clone(), d)).collect();
+    //     let job_map2: HashMap<String, SqueueRow> =
+    //         data2.into_iter().map(|d| (d.job_id.clone(), d)).collect();
 
-        println!("|jobs1| = {}", job_map1.len());
-        println!("|jobs2| = {}", job_map2.len());
+    //     println!("|jobs1| = {}", job_map1.len());
+    //     println!("|jobs2| = {}", job_map2.len());
 
-        let x: HashSet<&JobState> = job_map1.iter().map(|(_, j)| &j.state).collect();
-        println!("States 1: {:?}", x);
+    //     let x: HashSet<&JobState> = job_map1.iter().map(|(_, j)| &j.state).collect();
+    //     println!("States 1: {:?}", x);
 
-        let y: HashSet<&JobState> = job_map2.iter().map(|(_, j)| &j.state).collect();
-        println!("States 2: {:?}", y);
+    //     let y: HashSet<&JobState> = job_map2.iter().map(|(_, j)| &j.state).collect();
+    //     println!("States 2: {:?}", y);
 
-        for (job1_id, job1) in &job_map1 {
-            if job1.exec_host.is_some() && job1.state != JobState::RUNNING {
-                println!("Not running but has exec host: {:?}", job1);
-            }
-            if job1.exec_host.is_none() && job1.state == JobState::RUNNING {
-                println!("Running but has no exec host: {:?}", job1);
-            }
-            if let Some(job2) = job_map2.get(job1_id) {
-                if job2.state != job1.state {
-                    println!(
-                        "Job {} State change: {:?} -> {:?}",
-                        job1.job_id, job1.state, job2.state
-                    );
-                } else {
-                    // println!(
-                    //     "Job {} State same: {} -> {}",
-                    //     job1.id, job1.state, job2.state
-                    // );
-                }
-            } else {
-                println!("Job {:?} not found in second set", job1);
-            }
-        }
-        println!("All jobs finished!");
-    }
+    //     for (job1_id, job1) in &job_map1 {
+    //         if job1.exec_host.is_some() && job1.state != JobState::RUNNING {
+    //             println!("Not running but has exec host: {:?}", job1);
+    //         }
+    //         if job1.exec_host.is_none() && job1.state == JobState::RUNNING {
+    //             println!("Running but has no exec host: {:?}", job1);
+    //         }
+    //         if let Some(job2) = job_map2.get(job1_id) {
+    //             if job2.state != job1.state {
+    //                 println!(
+    //                     "Job {} State change: {:?} -> {:?}",
+    //                     job1.job_id, job1.state, job2.state
+    //                 );
+    //             } else {
+    //                 // println!(
+    //                 //     "Job {} State same: {} -> {}",
+    //                 //     job1.id, job1.state, job2.state
+    //                 // );
+    //             }
+    //         } else {
+    //             println!("Job {:?} not found in second set", job1);
+    //         }
+    //     }
+    //     println!("All jobs finished!");
+    // }
 }

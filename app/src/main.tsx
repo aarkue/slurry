@@ -6,8 +6,12 @@ import ReactDOM from "react-dom/client";
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App context={{
-      testSqueue: async( cfg ) => {
-        return await invoke("test_squeue",{cfg});
+      runSqueue: async (cfg) => {
+        return await invoke("run_squeue", { cfg });
+      },
+      extractOCEL: async (data) => {
+        console.log({data});
+        return await invoke("extract_ocel", {data});
       }
     }} />
   </React.StrictMode>,
