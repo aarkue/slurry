@@ -14,19 +14,33 @@ use process_mining::{
     },
     OCEL,
 };
-use rust_slurm::{self, get_squeue_res, login_with_cfg, ConnectionConfig, SqueueRow};
+use rust_slurm::{self, get_squeue_res, login_with_cfg, Client, ConnectionConfig, SqueueRow};
 use serde::Serialize;
+use tauri::{async_runtime::Mutex, State};
 
 #[tauri::command]
-async fn run_squeue(cfg: ConnectionConfig) -> Result<String, CmdError> {
+async fn run_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, CmdError> {
+    if let Some(client) = &state.lock().await.client {
+        let (time, jobs) = get_squeue_res(&client).await?;
+        serde_json::to_writer_pretty(
+            BufWriter::new(File::create(format!("{}.json", time.to_rfc3339())).unwrap()),
+            &jobs,
+        )
+        .unwrap();
+        Ok(format!("Got {} jobs at {}.", jobs.len(), time.to_rfc3339()))
+    } else {
+        Err(Error::msg("No logged-in client available.").into())
+    }
+}
+
+#[tauri::command]
+async fn login<'a>(
+    state: State<'a, Mutex<AppState>>,
+    cfg: ConnectionConfig,
+) -> Result<String, CmdError> {
     let client = login_with_cfg(&cfg).await?;
-    let (time, jobs) = get_squeue_res(&client).await?;
-    serde_json::to_writer_pretty(
-        BufWriter::new(File::create(format!("{}.json", time.to_rfc3339())).unwrap()),
-        &jobs,
-    )
-    .unwrap();
-    Ok(format!("Got {} jobs at {}.", jobs.len(), time.to_rfc3339()))
+    state.lock().await.client = Some(client);
+    Ok(String::from("OK"))
 }
 
 #[tauri::command]
@@ -295,8 +309,14 @@ impl Serialize for CmdError {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![run_squeue, extract_ocel])
+        .invoke_handler(tauri::generate_handler![run_squeue, extract_ocel, login])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[derive(Debug, Default)]
+struct AppState {
+    pub client: Option<Client>,
 }

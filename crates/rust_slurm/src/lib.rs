@@ -4,7 +4,8 @@ use std::{
 };
 
 use anyhow::Error;
-use async_ssh2_tokio::client::{AuthKeyboardInteractive, AuthMethod, Client, ServerCheckMethod};
+use async_ssh2_tokio::client::{AuthKeyboardInteractive, AuthMethod, ServerCheckMethod};
+pub use async_ssh2_tokio::Client;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 const SERVER_CHECK_METHOD: ServerCheckMethod = ServerCheckMethod::NoCheck;

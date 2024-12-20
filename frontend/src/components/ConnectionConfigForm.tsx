@@ -18,12 +18,12 @@ import { useCallback, useContext, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "./ui/input-otp";
 
-export default function ConnectionConfigForm() {
-  const { runSqueue: testSqueue } = useContext(AppContext);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isPollingWith, setIsPollingWith] = useState<
-    z.infer<typeof connectionFormSchema> | undefined
-  >(undefined);
+export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: boolean, onSubmit: (config: z.infer<typeof connectionFormSchema>) => any}) {
+  // const { runSqueue: testSqueue } = useContext(AppContext);
+  // const [isLoading, setIsLoading] = useState(false);
+  // const [isPollingWith, setIsPollingWith] = useState<
+  //   z.infer<typeof connectionFormSchema> | undefined
+  // >(undefined);
 
   const form = useForm<z.infer<typeof connectionFormSchema>>({
     resolver: zodResolver(connectionFormSchema),
@@ -34,60 +34,60 @@ export default function ConnectionConfigForm() {
     },
   });
 
-  const onSubmit = useCallback(
+  const submitCallback = useCallback(
     (values: z.infer<typeof connectionFormSchema>) => {
-      setIsLoading(true);
-      toast
-        .promise(testSqueue(values), {
-          loading: "Loading...",
-          error: (e) => (
-            <div>
-              Failed!
-              <br />
-              {e.toString()}
-            </div>
-          ),
-          success: (s) => (
-            <div>
-              Success!
-              <br />
-              {s}
-            </div>
-          ),
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+      onSubmit(values);
+      // setIsLoading(true);
+      // toast
+      //   .promise(testSqueue(values), {
+      //     loading: "Loading...",
+      //     error: (e) => (
+      //       <div>
+      //         Failed!
+      //         <br />
+      //         {e.toString()}
+      //       </div>
+      //     ),
+      //     success: (s) => (
+      //       <div>
+      //         Success!
+      //         <br />
+      //         {s}
+      //       </div>
+      //     ),
+      //   })
+      //   .finally(() => {
+      //     setIsLoading(false);
+      //   });
     },
     [],
   );
 
-  useEffect(() => {
-    console.log(isPollingWith);
-    let interval: NodeJS.Timeout | undefined;
-    if (isPollingWith !== undefined) {
-      onSubmit(isPollingWith);
-      interval = setInterval(() => {
-        onSubmit(isPollingWith);
-      }, 1000 * 5);
-    }
-    return () => {
-      if (interval != undefined) {
-        clearInterval(interval);
-      }
-    };
-  }, [isPollingWith, form]);
+  // useEffect(() => {
+  //   console.log(isPollingWith);
+  //   let interval: NodeJS.Timeout | undefined;
+  //   if (isPollingWith !== undefined) {
+  //     onSubmit(isPollingWith);
+  //     interval = setInterval(() => {
+  //       onSubmit(isPollingWith);
+  //     }, 1000 * 5);
+  //   }
+  //   return () => {
+  //     if (interval != undefined) {
+  //       clearInterval(interval);
+  //     }
+  //   };
+  // }, [isPollingWith, form]);
 
   return (
     <Form {...form}>
       <form
         className="mx-auto max-w-xl mt-4"
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={form.handleSubmit(submitCallback)}
       >
         <div>
           <div className="flex gap-x-2">
-            <FormField
-              disabled={isLoading || isPollingWith !== undefined}
+            <FormField disabled={disabled}
               control={form.control}
               name="host.0"
               render={({ field }) => (
@@ -101,8 +101,7 @@ export default function ConnectionConfigForm() {
               )}
             />
 
-            <FormField
-              disabled={isLoading || isPollingWith !== undefined}
+            <FormField  disabled={disabled}
               control={form.control}
               name="host.1"
               render={({ field }) => (
@@ -117,8 +116,7 @@ export default function ConnectionConfigForm() {
             />
           </div>
 
-          <FormField
-            disabled={isLoading || isPollingWith !== undefined}
+          <FormField  disabled={disabled}
             control={form.control}
             name="username"
             render={({ field }) => (
@@ -161,14 +159,12 @@ export default function ConnectionConfigForm() {
                     }}
                   >
                     <TabsList>
-                      <TabsTrigger
-                        disabled={isLoading || isPollingWith !== undefined}
+                      <TabsTrigger  disabled={disabled}
                         value="password-mfa"
                       >
                         Password + MFA
                       </TabsTrigger>
-                      <TabsTrigger
-                        disabled={isLoading || isPollingWith !== undefined}
+                      <TabsTrigger  disabled={disabled}
                         value="ssh-key"
                       >
                         Private SSH Keyfile
@@ -177,8 +173,7 @@ export default function ConnectionConfigForm() {
                     <div className="text-left ml-4">
                       <TabsContent value="password-mfa">
                         Login using a password and optionally a MFA token.
-                        <FormField
-                          disabled={isLoading || isPollingWith !== undefined}
+                        <FormField  disabled={disabled}
                           control={form.control}
                           name="auth.password"
                           render={({ field }) => (
@@ -195,8 +190,7 @@ export default function ConnectionConfigForm() {
                             </FormItem>
                           )}
                         />
-                        <FormField
-                          disabled={isLoading || isPollingWith !== undefined}
+                        <FormField  disabled={disabled}
                           control={form.control}
                           name="auth.mfaCode"
                           render={({ field }) => (
@@ -223,8 +217,7 @@ export default function ConnectionConfigForm() {
                       <TabsContent value="ssh-key">
                         Login using a private SSH key, optionally protected with
                         an additional passcode.
-                        <FormField
-                          disabled={isLoading || isPollingWith !== undefined}
+                        <FormField  disabled={disabled}
                           control={form.control}
                           name="auth.path"
                           render={({ field }) => (
@@ -237,8 +230,7 @@ export default function ConnectionConfigForm() {
                             </FormItem>
                           )}
                         />
-                        <FormField
-                          disabled={isLoading || isPollingWith !== undefined}
+                        <FormField  disabled={disabled}
                           control={form.control}
                           name="auth.passcode"
                           render={({ field }) => (
@@ -266,13 +258,12 @@ export default function ConnectionConfigForm() {
           />
         </div>
 
-        <Button
+        <Button disabled={disabled}
           type="submit"
-          disabled={isLoading || isPollingWith !== undefined}
         >
           Submit
         </Button>
-        <Button
+        {/* <Button
           className="ml-2"
           variant={isPollingWith !== undefined ? "destructive" : "secondary"}
           onClick={(ev) => {
@@ -289,7 +280,7 @@ export default function ConnectionConfigForm() {
           }}
         >
           {isPollingWith ? "End" : "Start"} Polling
-        </Button>
+        </Button> */}
       </form>
     </Form>
   );
