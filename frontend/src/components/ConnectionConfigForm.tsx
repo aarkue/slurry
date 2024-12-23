@@ -1,22 +1,20 @@
-import { z } from "zod";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { useForm } from "react-hook-form";
+import { connectionFormSchema } from "@/AppContext";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useCallback } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { Button } from "./ui/button";
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
-  FormMessage,
+  FormMessage
 } from "./ui/form";
 import { Input } from "./ui/input";
-import { Button } from "./ui/button";
-import { AppContext, connectionFormSchema } from "@/AppContext";
-import { useCallback, useContext, useEffect, useState } from "react";
-import toast from "react-hot-toast";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "./ui/input-otp";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: boolean, onSubmit: (config: z.infer<typeof connectionFormSchema>) => any}) {
   // const { runSqueue: testSqueue } = useContext(AppContext);
