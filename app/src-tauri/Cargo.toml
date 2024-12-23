@@ -25,4 +25,5 @@ serde_json = "1"
 rust_slurm = {path = "../../crates/rust_slurm/"}
 anyhow = "1.0.89"
 chrono = {version = "0.4.38", features = ["serde"] }
-process_mining = {path = "/home/aarkue/doc/projects/rust4pm/process_mining"}
+process_mining = {git = "https://github.com/aarkue/rust4pm.git"}
+#process_mining = {path = "/home/aarkue/doc/projects/rust4pm/process_mining"}
