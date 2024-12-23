@@ -23,7 +23,7 @@ async fn run_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, Cmd
     if let Some(client) = &state.lock().await.client {
         let (time, jobs) = get_squeue_res(&client).await?;
         serde_json::to_writer_pretty(
-            BufWriter::new(File::create(format!("{}.json", time.to_rfc3339())).unwrap()),
+            BufWriter::new(File::create(format!("{}.json", time.to_rfc3339().replace(":", "-"))).unwrap()),
             &jobs,
         )
         .unwrap();
