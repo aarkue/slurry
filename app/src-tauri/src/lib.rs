@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Error;
-use chrono::{DateTime, FixedOffset, NaiveDateTime};
+use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
 use process_mining::{
     export_ocel_json_path,
     ocel::ocel_struct::{
@@ -32,6 +32,17 @@ async fn run_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, Cmd
         Err(Error::msg("No logged-in client available.").into())
     }
 }
+
+#[tauri::command]
+async fn get_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<(DateTime<Utc>,Vec<SqueueRow>), CmdError> {
+    if let Some(client) = &state.lock().await.client {
+        let (time, jobs) = get_squeue_res(&client).await?;
+        Ok((time,jobs))
+    } else {
+        Err(Error::msg("No logged-in client available.").into())
+    }
+}
+
 
 #[tauri::command]
 async fn login<'a>(
@@ -311,7 +322,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![run_squeue, extract_ocel, login])
+        .invoke_handler(tauri::generate_handler![run_squeue, extract_ocel, login, get_squeue])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -9,6 +9,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       runSqueue: async () => {
         return await invoke("run_squeue");
       },
+      getSqueue: async () => {
+        return await invoke("get_squeue");
+      },
       extractOCEL: async (data) => {
         console.log({data});
         return await invoke("extract_ocel", {data});

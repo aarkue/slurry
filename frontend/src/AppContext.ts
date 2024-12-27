@@ -30,8 +30,10 @@ export const connectionFormSchema = z.object({
   ]),
 });
 
+export type SqueueRow = {account: string, state: string}
 export type AppContextType = {
   runSqueue: () => Promise<string>;
+  getSqueue: () => Promise<[string,SqueueRow[]]>,
   extractOCEL: (data: [string, any][]) => Promise<string>;
   login: (cfg: z.infer<typeof connectionFormSchema>) => Promise<string>;
 };
@@ -42,6 +44,7 @@ const throwNoContext = async () => {
 export const DEFAULT_NO_CONTEXT: AppContextType = {
   runSqueue: throwNoContext,
   extractOCEL: throwNoContext,
-  login: throwNoContext
+  login: throwNoContext,
+  getSqueue: throwNoContext,
 };
 export const AppContext = createContext<AppContextType>(DEFAULT_NO_CONTEXT);
