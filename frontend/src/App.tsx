@@ -5,6 +5,9 @@ import { AppContext, AppContextType } from "./AppContext";
 import ConnectionConfigForm from "./components/ConnectionConfigForm";
 import Spinner from "./components/ui/Spinner";
 import { Button } from "./components/ui/button";
+import { Circle, Dot } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import OCELExtractor from "./components/OCELExtractor";
 
 export default function App({ context }: { context: AppContextType }) {
   // TODO: Handle disconnects, ...
@@ -27,12 +30,11 @@ export default function App({ context }: { context: AppContextType }) {
           }
         
         {loggedInStatus === 'logged-in' && <div className="mt-2 ml-2">
-          <p>You are logged in.</p>
-          <Button onClick={() => {
-            toast.promise(context.runSqueue(),{loading: "Running squeue....", error: "Failed to run squeue!", success: "Extracted squeue!"})
-          }}>Pull</Button>
-          </div>}
-        {/* <Tabs className="mt-2" defaultValue="data-collection">
+          <div className="flex items-center gap-x-1 justify-end mr-2 absolute right-0">
+          <div className="size-4 rounded-full bg-green-600"/>
+          <p>Logged In</p>
+          </div>
+          <Tabs className="mt-2" defaultValue="data-collection">
           <div className="text-center">
             <TabsList>
               <TabsTrigger value="data-collection" className="font-semibold">
@@ -45,13 +47,17 @@ export default function App({ context }: { context: AppContextType }) {
           </div>
 
           <TabsContent value="data-collection">
-            <ConnectionConfigForm />
+          <Button className="mx-auto block" onClick={() => {
+            toast.promise(context.runSqueue(),{loading: "Running squeue....", error: "Failed to run squeue!", success: "Extracted squeue!"})
+          }}>Pull</Button>
           </TabsContent>
 
           <TabsContent value="ocel-extraction">
             <OCELExtractor />
           </TabsContent>
-        </Tabs> */}
+        </Tabs>
+          </div>}
+
       </main>
     </AppContext.Provider>
   );
