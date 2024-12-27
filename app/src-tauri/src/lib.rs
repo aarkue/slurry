@@ -23,7 +23,9 @@ async fn run_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, Cmd
     if let Some(client) = &state.lock().await.client {
         let (time, jobs) = get_squeue_res(&client).await?;
         serde_json::to_writer_pretty(
-            BufWriter::new(File::create(format!("{}.json", time.to_rfc3339().replace(":", "-"))).unwrap()),
+            BufWriter::new(
+                File::create(format!("{}.json", time.to_rfc3339().replace(":", "-"))).unwrap(),
+            ),
             &jobs,
         )
         .unwrap();
@@ -34,15 +36,16 @@ async fn run_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, Cmd
 }
 
 #[tauri::command]
-async fn get_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<(DateTime<Utc>,Vec<SqueueRow>), CmdError> {
+async fn get_squeue<'a>(
+    state: State<'a, Mutex<AppState>>,
+) -> Result<(DateTime<Utc>, Vec<SqueueRow>), CmdError> {
     if let Some(client) = &state.lock().await.client {
         let (time, jobs) = get_squeue_res(&client).await?;
-        Ok((time,jobs))
+        Ok((time, jobs))
     } else {
         Err(Error::msg("No logged-in client available.").into())
     }
 }
-
 
 #[tauri::command]
 async fn login<'a>(
@@ -51,6 +54,16 @@ async fn login<'a>(
 ) -> Result<String, CmdError> {
     let client = login_with_cfg(&cfg).await?;
     state.lock().await.client = Some(client);
+    Ok(String::from("OK"))
+}
+
+#[tauri::command]
+async fn logout<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, CmdError> {
+    if let Some(client) = state.lock().await.client.take() {
+        if let Err(e) = client.disconnect().await {
+            return Err(Error::from(e).into());
+        }
+    }
     Ok(String::from("OK"))
 }
 
@@ -322,7 +335,13 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(AppState::default()))
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![run_squeue, extract_ocel, login, get_squeue])
+        .invoke_handler(tauri::generate_handler![
+            run_squeue,
+            extract_ocel,
+            login,
+            logout,
+            get_squeue
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

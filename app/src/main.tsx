@@ -18,6 +18,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       },
       login: async (cfg) => {
         return await invoke("login", {cfg});
+      },
+      logout: async () => {
+        return await invoke("logout");
       }
     }} />
   </React.StrictMode>,

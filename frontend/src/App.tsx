@@ -34,7 +34,7 @@ export default function App({ context }: { context: AppContextType }) {
           <div className="flex items-center gap-x-1 justify-start ml-2 absolute left-0">
             <div className="size-4 rounded-full bg-green-600" />
             <p>Logged In</p>
-            <Button size="icon" variant="ghost" className="ml-2" title="Log out" onClick={() => setLoggedInStatus("initial")}><LogOut size={16} /></Button>
+            <Button size="icon" variant="ghost" className="ml-2" title="Log out" onClick={() => toast.promise(context.logout(), { loading: "Logging out...", error: "Failed to log out.", success: "Logged out!" }).finally(() => setLoggedInStatus("initial"))}><LogOut size={16} /></Button>
           </div>
           <Tabs className="mt-2" defaultValue="data-collection">
             <div className="text-center">
@@ -52,7 +52,7 @@ export default function App({ context }: { context: AppContextType }) {
             </div>
 
             <TabsContent value="overview">
-              <JobsOverview/>
+              <JobsOverview />
             </TabsContent>
             <TabsContent value="data-collection">
               <Button className="mx-auto block" onClick={() => {
