@@ -1,5 +1,8 @@
 use std::{
-    path::PathBuf,
+    collections::{HashMap, HashSet},
+    fs::{create_dir_all, File},
+    io::BufWriter,
+    path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
 
@@ -8,6 +11,7 @@ use async_ssh2_tokio::client::{AuthKeyboardInteractive, AuthMethod, ServerCheckM
 pub use async_ssh2_tokio::Client;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
+use structdiff::{Difference, StructDiff};
 const SERVER_CHECK_METHOD: ServerCheckMethod = ServerCheckMethod::NoCheck;
 
 // https://slurm.schedmd.com/squeue.html
@@ -41,7 +45,7 @@ const SQUEUE_FORMAT_STR: &str =
 //     "COMMAND",
 // ];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Difference)]
 pub struct SqueueRow {
     // "ACCOUNT",
     pub account: String,
@@ -69,14 +73,16 @@ pub struct SqueueRow {
     // 49848561 or 49869434_2 or 49616001_[3-10%1]
     pub step_job_id: (String, Option<String>),
     // "TIME_LIMIT",
-    pub time_limit: Duration,
+    pub time_limit: Option<Duration>,
     // "TIME_LEFT",
-    pub time_left: Duration,
+    #[difference(skip)]
+    pub time_left: Option<Duration>,
     // "NAME",
     pub name: String,
     // "MIN_MEMORY",
     pub min_memory: String,
     // "TIME",
+    #[difference(skip)]
     pub time: Option<Duration>,
     // "PRIORITY",
     pub priority: f64,
@@ -169,15 +175,23 @@ impl SqueueRow {
                 step_job_id.next().unwrap().to_string(),
                 step_job_id.next().map(|s| s.to_string()),
             ), // todo!(), // 11
-            time_limit: parse_slurm_duration(vals[12])?, // Duration::from_secs(10), // todo!(), // 12
-            time_left: parse_slurm_duration(vals[13])?,  // todo!(), // 13
-            name: vals[14].to_string(),                  // 14
-            min_memory: vals[15].to_string(),            // 15
+            time_limit: match vals[12] {
+                "INVALID" => None,
+                s => parse_slurm_duration(s).map(|d| Some(d)).unwrap_or_default(),
+            }, // 12
+            time_left: match vals[13] {
+                "INVALID" => None,
+                s => parse_slurm_duration(s).map(|d| Some(d)).unwrap_or_default(),
+            }, // 13
+            name: vals[14].to_string(),       // 14
+            min_memory: vals[15].to_string(), // 15
             time: match vals[16] {
                 "INVALID" => None,
-                s => Some(parse_slurm_duration(s)?)
-            }, // NaiveDateTime::parse_from_str(vals[16],"%Y-%m-%dT%H:%M:%S")?, // 16
-            priority: vals[17].parse().inspect_err(|err| { eprintln!("Priority failed to parse! {err:?}")})?,           // 17
+                s => parse_slurm_duration(s).map(|d| Some(d)).unwrap_or_default(),
+            },
+            priority: vals[17]
+                .parse()
+                .inspect_err(|err| eprintln!("Priority failed to parse! {err:?}"))?, // 17
             partition: vals[18].to_string(),
             state: JobState::from_str(vals[19])?,
             reason: vals[20].to_string(),
@@ -201,6 +215,7 @@ pub enum JobState {
     CANCELLED,
     FAILED,
     TIMEOUT,
+    #[allow(non_camel_case_types)]
     OUT_OF_MEMORY,
     OTHER(String),
 }
@@ -217,9 +232,9 @@ impl JobState {
             "TIMEOUT" => Ok(Self::TIMEOUT),
             "OUT_OF_MEMORY" => Ok(Self::OUT_OF_MEMORY),
             s => {
-                println!("Unhandled job state: {} detected!",s);
+                println!("Unhandled job state: {} detected!", s);
                 Ok(Self::OTHER(s.to_string()))
-            },
+            }
         }
     }
 }
@@ -331,7 +346,9 @@ pub async fn get_squeue_res<'a>(
     client: &'a Client,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
     let result = client
-        .execute(&format!("squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}'"))
+        .execute(&format!(
+            "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}'"
+        ))
         .await?;
     let mut res_lines = result.stdout.split("\n");
     // let _column_str = res_lines
@@ -349,7 +366,7 @@ pub async fn get_squeue_res<'a>(
     let d: Vec<SqueueRow> = res_lines
         .filter_map(move |line| {
             if line.is_empty() {
-                return None
+                return None;
             }
             let res = SqueueRow::parse_from_strs(&line.split("|").collect::<Vec<_>>());
             match res {
@@ -364,19 +381,107 @@ pub async fn get_squeue_res<'a>(
     Ok((time, d))
 }
 
+pub async fn squeue_diff<'a, 'b>(
+    client: &'a Client,
+    path: &Path,
+    known_jobs: &'b mut HashMap<String, SqueueRow>,
+    all_ids: &'b mut HashSet<String>,
+) -> Result<(), Error> {
+    let (time, rows) = get_squeue_res(client).await?;
+    let cleaned_time = time.to_rfc3339().replace(":", "-");
+    let row_ids = rows
+        .iter()
+        .map(|r| r.job_id.clone())
+        .collect::<HashSet<_>>();
+    create_dir_all(&path)?;
+    let id_save_path = path.join(format!("{}.json", cleaned_time));
+    if let Err(e) = serde_json::to_writer(
+        BufWriter::new(File::create(id_save_path).unwrap()),
+        &row_ids,
+    ) {
+        eprintln!("Failed to create file for all jobs ids: {:?}", e);
+    }
+    for row in rows {
+        if let Some(prev_row) = known_jobs.get_mut(&row.job_id) {
+            // Job is known!
+            // Compute delta
+            let diff_ref = row.diff_ref(prev_row);
+            if !diff_ref.is_empty() {
+                // Save job delta (e.g., as JSON)
+                let save_path = path
+                .join(&row.job_id)
+                .join(format!("DELTA-{}.json", cleaned_time));
+            if let Err(e) =
+            serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &diff_ref)
+            {
+                eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
+            }
+        }
+            // Update prev_row in known_jobs
+            *prev_row = row;
+        } else {
+            // Job is new!
+            // Double check with all_ids:
+            if all_ids.contains(&row.job_id) {
+                eprintln!("Job re-appeared! Maybe IDs get reused?");
+            }
+            let folder_path = path.join(&row.job_id);
+            create_dir_all(&folder_path)?;
+            // Save job (e.g., as JSON)
+            let save_path = folder_path.join(format!("{}.json", cleaned_time));
+            if let Err(e) =
+                serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &row)
+            {
+                eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
+            }
+            known_jobs.insert(row.job_id.clone(), row);
+        }
+    }
+    // Remove all known jobs which
+    known_jobs.retain(|j_id, _| row_ids.contains(j_id));
+    all_ids.extend(row_ids);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
         fs::File,
         io::BufReader,
-        path::PathBuf,
+        path::{Path, PathBuf},
     };
 
     use anyhow::Error;
+    use async_ssh2_tokio::AuthMethod;
+    use chrono::Duration;
     use glob::glob;
 
-    use crate::{JobState, SqueueRow};
+    use crate::{
+        login_with_cfg, squeue_diff, ConnectionAuth, ConnectionConfig, JobState, SqueueRow,
+    };
+
+    #[tokio::test]
+    async fn test_squeue_loop() {
+        let login_cfg = ConnectionConfig::new(
+            ("login23-1.hpc.itc.rwth-aachen.de".to_string(), 22),
+            "at325350".to_string(),
+            ConnectionAuth::SSHKey {
+                path: "/home/aarkue/.ssh/id_ed25519".to_string(),
+                passphrase: None,
+            },
+        );
+        let client = login_with_cfg(&login_cfg).await.unwrap();
+        let mut known_jobs = HashMap::default();
+        let mut all_ids = HashSet::default();
+        let path = PathBuf::new().join("test_squeue_loop");
+        loop {
+            squeue_diff(&client, &path, &mut known_jobs, &mut all_ids)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+    }
+    }
 
     // #[test]
     // fn test_json() -> Result<(), Error> {
