@@ -77,7 +77,7 @@ pub struct SqueueRow {
     // "MIN_MEMORY",
     pub min_memory: String,
     // "TIME",
-    pub time: Duration,
+    pub time: Option<Duration>,
     // "PRIORITY",
     pub priority: f64,
     // "PARTITION",
@@ -173,8 +173,11 @@ impl SqueueRow {
             time_left: parse_slurm_duration(vals[13])?,  // todo!(), // 13
             name: vals[14].to_string(),                  // 14
             min_memory: vals[15].to_string(),            // 15
-            time: parse_slurm_duration(vals[16])?, // NaiveDateTime::parse_from_str(vals[16],"%Y-%m-%dT%H:%M:%S")?, // 16
-            priority: vals[17].parse()?,           // 17
+            time: match vals[16] {
+                "INVALID" => None,
+                s => Some(parse_slurm_duration(s)?)
+            }, // NaiveDateTime::parse_from_str(vals[16],"%Y-%m-%dT%H:%M:%S")?, // 16
+            priority: vals[17].parse().inspect_err(|err| { eprintln!("Priority failed to parse! {err:?}")})?,           // 17
             partition: vals[18].to_string(),
             state: JobState::from_str(vals[19])?,
             reason: vals[20].to_string(),
@@ -194,6 +197,11 @@ pub enum JobState {
     RUNNING,
     PENDING,
     COMPLETING,
+    COMPLETED,
+    CANCELLED,
+    FAILED,
+    TIMEOUT,
+    OUT_OF_MEMORY,
     OTHER(String),
 }
 
@@ -203,7 +211,15 @@ impl JobState {
             "RUNNING" => Ok(Self::RUNNING),
             "PENDING" => Ok(Self::PENDING),
             "COMPLETING" => Ok(Self::COMPLETING),
-            s => Ok(Self::OTHER(s.to_string())),
+            "COMPLETED" => Ok(Self::COMPLETED),
+            "CANCELLED" => Ok(Self::CANCELLED),
+            "FAILED" => Ok(Self::FAILED),
+            "TIMEOUT" => Ok(Self::TIMEOUT),
+            "OUT_OF_MEMORY" => Ok(Self::OUT_OF_MEMORY),
+            s => {
+                println!("Unhandled job state: {} detected!",s);
+                Ok(Self::OTHER(s.to_string()))
+            },
         }
     }
 }
@@ -315,13 +331,13 @@ pub async fn get_squeue_res<'a>(
     client: &'a Client,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
     let result = client
-        .execute(&format!("squeue --format='{SQUEUE_FORMAT_STR}'"))
+        .execute(&format!("squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}'"))
         .await?;
     let mut res_lines = result.stdout.split("\n");
-    let _column_str = res_lines
-        .next()
-        .ok_or(Error::msg("No line breaks in output"))?
-        .to_string();
+    // let _column_str = res_lines
+    //     .next()
+    //     .ok_or(Error::msg("No line breaks in output"))?
+    //     .to_string();
 
     // let columns: Vec<&str> = _column_str.split("|").collect();
     // if columns != SQUEUE_EXPECTED_COLS {
@@ -332,11 +348,14 @@ pub async fn get_squeue_res<'a>(
     let time: DateTime<Utc> = SystemTime::now().into();
     let d: Vec<SqueueRow> = res_lines
         .filter_map(move |line| {
+            if line.is_empty() {
+                return None
+            }
             let res = SqueueRow::parse_from_strs(&line.split("|").collect::<Vec<_>>());
             match res {
                 Ok(row) => Some(row),
                 Err(err) => {
-                    println!("{:?}", err);
+                    println!("[!] {:?} for {:?}", err, &line);
                     None
                 }
             }
