@@ -31,7 +31,7 @@ export default function OCELExtractor() {
             ...fs,
             ...newFiles.map((f) => {
               try {
-                const t = new Date(f.name.replace(".json", "")).toISOString();
+                const t = new Date(f.name.replace(".json", "").replace(/(T.*)$/,(s,a,b) => a.replaceAll("-",":"))).toISOString();
                 return { file: f, timestamp: t };
               } catch (e) {
                 return { file: f, timestamp: null };
