@@ -30,7 +30,7 @@ export default function JobsOverview() {
         {data.length > 0 && <MyResponsiveLine data={[...(new Set(["PENDING","RUNNING","COMPLETING"]).union(new Set(data.flatMap((d) => Object.keys(d.counts))))).values()].map((state) => ({
             id: state,
             color: state == "RUNNING" ? "#7FE575" : state === "PENDING" ? "#42C7D5" :  state === "COMPLETING" ? "#EAC5D8" : "red",
-            data: data.slice(data.length-250).map((i) => ({ x: i.time, y: i.counts[state] ?? 0 }))
+            data: data.filter((_,i) => i === data.length-1 || i%Math.max(1,Math.floor(data.length/30)) === 0).map((i) => ({ x: i.time, y: i.counts[state] ?? 0 }))
         }))} />}
     </div>
 }
@@ -76,8 +76,8 @@ const MyResponsiveLine = ({ data /* see data tab */ }: {
             tickSize: 5,
             tickPadding: 5,
             tickRotation: 0,
-            legend: 'Count`',
-            legendOffset: -40,
+            legend: 'Count',
+            legendOffset: -45,
             legendPosition: 'middle',
             truncateTickAt: 0,
         }}
