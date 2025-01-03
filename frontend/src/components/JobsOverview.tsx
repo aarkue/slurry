@@ -1,6 +1,28 @@
 import { AppContext } from '@/AppContext';
-import { ResponsiveLine } from '@nivo/line'
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { ResponsiveLine } from '@nivo/line';
+import { useCallback, useContext, useEffect, useState } from 'react';
+import { Label } from './ui/label';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+
+function getColorForState(state: string): any {
+    switch (state) {
+        case "RUNNING":
+            return "#0b9fe3";
+        case "PENDING":
+            return "#ffec21";
+        case "COMPLETING":
+            return "#71eb98";
+        case "COMPLETED":
+            return "#12e034";
+        case "FAILED":
+            return "#ff7077";
+        case "CANCELLED":
+            return "#95bec2";
+        case "OUT_OF_MEMORY":
+            return "#ff96d0";
+    }
+    return "black";
+}
 
 
 export default function JobsOverview() {
@@ -16,7 +38,7 @@ export default function JobsOverview() {
         }
         console.log(counts)
         setData((prevData) => [...prevData, { time: new Date(time), counts }])
-    }),[]);
+    }), []);
     useEffect(() => {
         updateData()
         const t = setInterval(() => {
@@ -26,12 +48,25 @@ export default function JobsOverview() {
             clearInterval(t);
         }
     }, [])
+    const [mode, setMode] = useState<'all' | 'exit'>('all');
+
     return <div className='h-[20rem] w-11/12 mx-auto'>
-        {data.length > 0 && <MyResponsiveLine data={[...(new Set(["PENDING","RUNNING","COMPLETING"]).union(new Set(data.flatMap((d) => Object.keys(d.counts))))).values()].map((state) => ({
-            id: state,
-            color: state == "RUNNING" ? "#7FE575" : state === "PENDING" ? "#42C7D5" :  state === "COMPLETING" ? "#EAC5D8" : "red",
-            data: data.filter((_,i) => i === data.length-1 || i%Math.max(1,Math.floor(data.length/30)) === 0).map((i) => ({ x: i.time, y: i.counts[state] ?? 0 }))
-        }))} />}
+        <div className='flex flex-col items-center gap-1'>
+
+        <Label className='text-base'>Status Codes</Label>
+        <ToggleGroup variant="outline" type="single" value={mode} onValueChange={(e) => setMode(e === "all" ? "all" : "exit")}>
+            <ToggleGroupItem value="all">All</ToggleGroupItem>
+            <ToggleGroupItem value="exit">Exit</ToggleGroupItem>
+        </ToggleGroup>
+        </div>
+        {data.length > 0 && <MyResponsiveLine data={
+            (mode === 'all' ? [...(new Set(["PENDING", "RUNNING", "COMPLETING", "COMPLETED", "CANCELLED", "FAILED", "OUT_OF_MEMORY"])).values()]
+                : ["COMPLETED", "CANCELLED", "FAILED", "OUT_OF_MEMORY"])
+                .map((state) => ({
+                    id: state,
+                    color: getColorForState(state),
+                    data: data.filter((_, i) => i === data.length - 1 || i % Math.max(1, Math.floor(data.length / 30)) === 0).map((i) => ({ x: i.time, y: i.counts[state] ?? 0 }))
+                }))} />}
     </div>
 }
 
@@ -49,7 +84,7 @@ const MyResponsiveLine = ({ data /* see data tab */ }: {
     <ResponsiveLine
         data={data}
         margin={{ top: 50, right: 110, bottom: 50, left: 60 }}
-        xScale={{ type: 'time', nice: false, useUTC: false, format: '%H:%M:%S'}}
+        xScale={{ type: 'time', nice: false, useUTC: false, format: '%H:%M:%S' }}
         yScale={{
             type: 'linear',
             min: 0,
@@ -86,7 +121,8 @@ const MyResponsiveLine = ({ data /* see data tab */ }: {
         // pointLabel="data.yFormatted"
         pointLabelYOffset={-12}
         enableArea={true}
-        areaOpacity={0.3}
+        areaOpacity={0.25}
+        areaBlendMode={'normal'}
         // enableTouchCrosshair={true}
         // useMesh={true}
         enableSlices={'x'}
