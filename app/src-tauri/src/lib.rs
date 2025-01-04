@@ -1,11 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::BufWriter,
+    io::{BufReader, BufWriter},
+    path::PathBuf,
 };
 
 use anyhow::Error;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
+use glob::glob;
 use process_mining::{
     export_ocel_json_path,
     ocel::ocel_struct::{
@@ -16,6 +18,7 @@ use process_mining::{
 };
 use rust_slurm::{self, get_squeue_res, login_with_cfg, Client, ConnectionConfig, SqueueRow};
 use serde::Serialize;
+use structdiff::StructDiff;
 use tauri::{async_runtime::Mutex, State};
 
 #[tauri::command]
@@ -349,4 +352,184 @@ pub fn run() {
 #[derive(Debug, Default)]
 struct AppState {
     pub client: Option<Client>,
+}
+
+#[test]
+fn extract_oced_delta() {
+    let path =
+        PathBuf::from("/home/aarkue/doc/projects/rust-slurm/crates/rust_slurm/test_squeue_loop/");
+
+    let mut ocel: OCEL = OCEL {
+        event_types: Vec::new(),
+        object_types: Vec::new(),
+        events: Vec::new(),
+        objects: Vec::new(),
+    };
+    ocel.object_types.push(OCELType {
+        name: "Job".to_string(),
+        attributes: vec![
+            OCELTypeAttribute::new("state", &OCELAttributeType::String),
+            OCELTypeAttribute::new("command", &OCELAttributeType::String),
+            OCELTypeAttribute::new("work_dir", &OCELAttributeType::String),
+            OCELTypeAttribute::new("cpus", &OCELAttributeType::Integer),
+            OCELTypeAttribute::new("min_memory", &OCELAttributeType::String),
+        ],
+    });
+
+    ocel.object_types.push(OCELType {
+        name: "Account".to_string(),
+        attributes: vec![],
+    });
+    ocel.object_types.push(OCELType {
+        name: "Group".to_string(),
+        attributes: vec![],
+    });
+    ocel.object_types.push(OCELType {
+        name: "Host".to_string(),
+        attributes: vec![],
+    });
+    ocel.object_types.push(OCELType {
+        name: "Partition".to_string(),
+        attributes: vec![],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Submit Job".to_string(),
+        attributes: vec![],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Job Started".to_string(),
+        attributes: vec![],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Job Ending".to_string(),
+        attributes: vec![],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Job Completed".to_string(),
+        attributes: vec![],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Job Cancelled".to_string(),
+        attributes: vec![],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Job Failed".to_string(),
+        attributes: vec![OCELTypeAttribute::new("reason", &OCELAttributeType::String)],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Job Timeout".to_string(),
+        attributes: vec![],
+    });
+
+    ocel.event_types.push(OCELType {
+        name: "Job Out Of Memory".to_string(),
+        attributes: vec![],
+    });
+
+    let mut jobs_per_time: HashMap<DateTime<Utc>, HashSet<String>> = HashMap::new();
+    for entry in glob(&path.join("*.json").to_string_lossy()).expect("Glob failed") {
+        match entry {
+            Ok(j) => {
+                let job_ids: HashSet<String> =
+                    serde_json::from_reader(File::open(&j).unwrap()).unwrap();
+                let time = extract_timestamp(
+                    &j.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace(".json", ""),
+                );
+                jobs_per_time.insert(time, job_ids);
+            }
+            Err(_) => todo!(),
+        }
+    }
+    let all_jobs_ids: HashSet<&String> = jobs_per_time.values().flatten().collect();
+    println!("Recorded {} jobs overall.", all_jobs_ids.len());
+
+    let mut accounts: HashSet<String> = HashSet::new();
+    let mut groups: HashSet<String> = HashSet::new();
+    let mut partitions: HashSet<String> = HashSet::new();
+    let mut execution_hosts: HashSet<String> = HashSet::new();
+    // Go through all jobs
+    // Only consider jobs which start as 'PENDING'
+    for job_id in all_jobs_ids {
+        let mut job: Option<OCELObject> = None;
+        for entry in glob(&path.join(job_id).join("*.json").to_string_lossy()).expect("Glob failed")
+        {
+            match entry {
+                Ok(d) => {
+                    //
+                    match job.as_mut() {
+                        None => {
+                            // This is assumed to then be the first result (i.e., initial job data)
+                            let j: SqueueRow =
+                                serde_json::from_reader(File::open(&d).unwrap()).unwrap();
+
+                            accounts.insert(j.account.clone());
+                            groups.insert(j.group.clone());
+                            partitions.insert(j.partition.clone());
+
+                            let mut o = OCELObject {
+                                id: j.job_id.clone(),
+                                object_type: "Job".to_string(),
+                                attributes: vec![
+                                    OCELObjectAttribute::new(
+                                        "command",
+                                        j.command.split("/").last().unwrap_or_default(),
+                                        DateTime::UNIX_EPOCH,
+                                    ),
+                                    OCELObjectAttribute::new(
+                                        "work_dir",
+                                        j.work_dir.to_string_lossy().to_string(),
+                                        DateTime::UNIX_EPOCH,
+                                    ),
+                                    OCELObjectAttribute::new("cpus", j.cpus, DateTime::UNIX_EPOCH),
+                                    OCELObjectAttribute::new(
+                                        "min_memory",
+                                        &j.min_memory,
+                                        DateTime::UNIX_EPOCH,
+                                    ),
+                                ],
+                                relationships: vec![
+                                    OCELRelationship::new(&j.account, "submitted by"),
+                                    OCELRelationship::new(&j.group, "submitted by group"),
+                                    OCELRelationship::new(&j.partition, "submitted on"),
+                                ],
+                            };
+                            if let Some(exec_host) = &j.exec_host {
+                                o.relationships
+                                    .push(OCELRelationship::new(&exec_host, "executed on"));
+                                execution_hosts.insert(exec_host.clone());
+                            }
+                            job = Some(o);
+                        }
+                        Some( j) => {
+                            let delta: Vec<<SqueueRow as StructDiff>::Diff> =
+                                serde_json::from_reader(File::open(&d).unwrap()).unwrap();
+                                let dt = extract_timestamp(&d.file_name().unwrap().to_string_lossy().replace("DELTA-","").replace(".json",""));
+                            for df in delta {
+                                println!("{:?}",df);
+                                
+                            }
+                        },
+                    }
+                }
+                Err(_) => todo!(),
+            }
+        }
+    }
+}
+
+pub fn extract_timestamp(s: &str) -> DateTime<Utc> {
+    // 2025-01-04T00-55-04.789009695+00-00
+    let (date, time) = s.split_once("T").unwrap();
+    let dt_rfc = format!("{}T{}", date, time.replace("-", ":"));
+    DateTime::parse_from_rfc3339(&dt_rfc).unwrap().to_utc()
 }

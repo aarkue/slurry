@@ -4650,10 +4650,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "glob",
  "process_mining",
  "rust_slurm",
  "serde",
  "serde_json",
+ "structdiff",
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",

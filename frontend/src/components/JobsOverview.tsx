@@ -13,9 +13,9 @@ function getColorForState(state: string): any {
         case "COMPLETING":
             return "#71eb98";
         case "COMPLETED":
-            return "#12e034";
+            return "#1cdb32";
         case "FAILED":
-            return "#ff7077";
+            return "#ff707790";
         case "CANCELLED":
             return "#95bec2";
         case "OUT_OF_MEMORY":
@@ -60,8 +60,8 @@ export default function JobsOverview() {
         </ToggleGroup>
         </div>
         {data.length > 0 && <MyResponsiveLine data={
-            (mode === 'all' ? [...(new Set(["PENDING", "RUNNING", "COMPLETING", "COMPLETED", "CANCELLED", "FAILED", "OUT_OF_MEMORY"])).values()]
-                : ["COMPLETED", "CANCELLED", "FAILED", "OUT_OF_MEMORY"])
+            (mode === 'all' ? [...(new Set(["PENDING", "RUNNING", "COMPLETING", "COMPLETED", "FAILED", "OUT_OF_MEMORY", "CANCELLED"])).values()]
+                : ["COMPLETED", "FAILED", "OUT_OF_MEMORY", "CANCELLED"])
                 .map((state) => ({
                     id: state,
                     color: getColorForState(state),

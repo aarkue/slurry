@@ -1,1 +1,3 @@
 /target
+**/test_squeue_loop/
+app/src-tauri/*.json

@@ -393,6 +393,11 @@ pub async fn squeue_diff<'a, 'b>(
         .iter()
         .map(|r| r.job_id.clone())
         .collect::<HashSet<_>>();
+    // Sanity check
+    if rows.len() != row_ids.len() {
+        eprintln!("Count mismatch: {} != {}",rows.len(),row_ids.len());
+
+    }
     create_dir_all(&path)?;
     let id_save_path = path.join(format!("{}.json", cleaned_time));
     if let Err(e) = serde_json::to_writer(
@@ -405,14 +410,14 @@ pub async fn squeue_diff<'a, 'b>(
         if let Some(prev_row) = known_jobs.get_mut(&row.job_id) {
             // Job is known!
             // Compute delta
-            let diff_ref = row.diff_ref(prev_row);
-            if !diff_ref.is_empty() {
+            let diff = prev_row.diff(&row);
+            if !diff.is_empty() {
                 // Save job delta (e.g., as JSON)
                 let save_path = path
                 .join(&row.job_id)
                 .join(format!("DELTA-{}.json", cleaned_time));
             if let Err(e) =
-            serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &diff_ref)
+            serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &diff)
             {
                 eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
             }
@@ -475,11 +480,14 @@ mod tests {
         let mut known_jobs = HashMap::default();
         let mut all_ids = HashSet::default();
         let path = PathBuf::new().join("test_squeue_loop");
+        let mut i = 0;
         loop {
             squeue_diff(&client, &path, &mut known_jobs, &mut all_ids)
             .await
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        i += 1;
+        println!("Ran for {} iterations, sleeping...",i);
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }
     }
 
