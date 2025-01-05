@@ -465,7 +465,14 @@ fn extract_oced_delta() {
         {
             match entry {
                 Ok(d) => {
-                    //
+
+                    let dt = extract_timestamp(
+                        &d.file_name()
+                            .unwrap()
+                            .to_string_lossy()
+                            .replace("DELTA-", "")
+                            .replace(".json", ""),
+                    );
                     match job.as_mut() {
                         None => {
                             // This is assumed to then be the first result (i.e., initial job data)
@@ -496,6 +503,11 @@ fn extract_oced_delta() {
                                         &j.min_memory,
                                         DateTime::UNIX_EPOCH,
                                     ),
+                                    OCELObjectAttribute::new(
+                                        "state",
+                                        format!("{:?}",&j.state),
+                                        dt.clone(),
+                                    ),
                                 ],
                                 relationships: vec![
                                     OCELRelationship::new(&j.account, "submitted by"),
@@ -510,15 +522,59 @@ fn extract_oced_delta() {
                             }
                             job = Some(o);
                         }
-                        Some( j) => {
-                            let delta: Vec<<SqueueRow as StructDiff>::Diff> =
+                        Some(j) => {
+                            type D = <SqueueRow as StructDiff>::Diff;
+                            let delta: Vec<D> =
                                 serde_json::from_reader(File::open(&d).unwrap()).unwrap();
-                                let dt = extract_timestamp(&d.file_name().unwrap().to_string_lossy().replace("DELTA-","").replace(".json",""));
+
                             for df in delta {
-                                println!("{:?}",df);
-                                
+                                println!("{:?}", df);
+                                match df {
+                                    D::command(c) => {}
+                                    D::work_dir(w) => {}
+                                    D::min_memory(m) => {}
+                                    D::exec_host(h) => {},
+
+                                    D::account(a) => {}
+                                    D::state(s) => {
+                                        // State update => Event!
+                                        match s {
+                                            rust_slurm::JobState::RUNNING => todo!(),
+                                            rust_slurm::JobState::PENDING => todo!(),
+                                            rust_slurm::JobState::COMPLETING => todo!(),
+                                            rust_slurm::JobState::COMPLETED => todo!(),
+                                            rust_slurm::JobState::CANCELLED => todo!(),
+                                            rust_slurm::JobState::FAILED => todo!(),
+                                            rust_slurm::JobState::TIMEOUT => todo!(),
+                                            rust_slurm::JobState::OUT_OF_MEMORY => todo!(),
+                                            rust_slurm::JobState::OTHER(_) => todo!(),
+                                        }
+                                    }
+                                 //   _ => {}
+                                    D::job_id(_) => {}
+                                    D::min_cpus(_) => {}
+                                    D::cpus(_) => {}
+                                    D::nodes(_) => {}
+                                    D::end_time(_) => {}
+                                    D::dependency(_) => {}
+                                    D::features(_) => {}
+                                    D::array_job_id(_) => {}
+                                    D::group(_) => {}
+                                    D::step_job_id(_) => {}
+                                    D::time_limit(_) => {}
+                                    D::name(_) => {}
+                                    D::priority(_) => {}
+                                    D::partition(_) => {}
+                                    D::reason(_) => {}
+                                    D::start_time(t) => {}
+                                    D::submit_time(_) => {}
+                                };
                             }
-                        },
+                        }
+
+                    }
+                    if let Some(o) = job.take() {
+                        ocel.objects.push(o);
                     }
                 }
                 Err(_) => todo!(),
