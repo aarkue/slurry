@@ -16,8 +16,11 @@ use process_mining::{
     },
     OCEL,
 };
-use rust_slurm::{self, get_squeue_res, login_with_cfg, Client, ConnectionConfig, SqueueRow};
+use rust_slurm::{
+    self, get_squeue_res, login_with_cfg, Client, ConnectionConfig, SqueueRow,
+};
 use serde::Serialize;
+use serde_json::map::Keys;
 use structdiff::StructDiff;
 use tauri::{async_runtime::Mutex, State};
 
@@ -460,127 +463,250 @@ fn extract_oced_delta() {
     // Go through all jobs
     // Only consider jobs which start as 'PENDING'
     for job_id in all_jobs_ids {
-        let mut job: Option<OCELObject> = None;
-        for entry in glob(&path.join(job_id).join("*.json").to_string_lossy()).expect("Glob failed")
-        {
-            match entry {
-                Ok(d) => {
+        let mut g = glob(&path.join(job_id).join("*.json").to_string_lossy()).expect("Glob failed");
+        let mut start_ev: Option<OCELEvent> = None;
+        if let Some(Ok(d)) = g.next() {
+            let dt = extract_timestamp(
+                &d.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace(".json", ""),
+            );
+            // Initial Job Data
+            // This is assumed to then be the first result (i.e., initial job data)
+            let mut row: SqueueRow = serde_json::from_reader(File::open(&d).unwrap())
+                .inspect_err(|e| eprintln!("Failed to deser.: {d:?}"))
+                .unwrap();
 
-                    let dt = extract_timestamp(
-                        &d.file_name()
-                            .unwrap()
-                            .to_string_lossy()
-                            .replace("DELTA-", "")
-                            .replace(".json", ""),
+            accounts.insert(row.account.clone());
+            groups.insert(row.group.clone());
+            partitions.insert(row.partition.clone());
+            if let Some(h) = &row.exec_host {
+                execution_hosts.insert(h.clone());
+            }
+
+            let mut o = OCELObject {
+                id: row.job_id.clone(),
+                object_type: "Job".to_string(),
+                attributes: vec![
+                    OCELObjectAttribute::new(
+                        "command",
+                        row.command.split("/").last().unwrap_or_default(),
+                        DateTime::UNIX_EPOCH,
+                    ),
+                    OCELObjectAttribute::new(
+                        "work_dir",
+                        row.work_dir.to_string_lossy().to_string(),
+                        DateTime::UNIX_EPOCH,
+                    ),
+                    OCELObjectAttribute::new("cpus", row.cpus, DateTime::UNIX_EPOCH),
+                    OCELObjectAttribute::new("min_memory", &row.min_memory, DateTime::UNIX_EPOCH),
+                    OCELObjectAttribute::new("state", format!("{:?}", &row.state), dt.clone()),
+                ],
+                relationships: vec![
+                    OCELRelationship::new(format!("acc_{}", &row.account), "submitted by"),
+                    OCELRelationship::new(format!("group_{}", &row.group), "submitted by group"),
+                    OCELRelationship::new(format!("part_{}", &row.partition), "submitted on"),
+                ],
+            };
+            if let Some(exec_host) = &row.exec_host {
+                o.relationships.push(OCELRelationship::new(
+                    format!("host_{exec_host}"),
+                    "executed on",
+                ));
+                execution_hosts.insert(exec_host.clone());
+            }
+
+            let e = OCELEvent::new(
+                format!("submit-{}-{}", o.id, ocel.events.len()),
+                "Submit Job",
+                row.submit_time.and_utc(),
+                Vec::new(),
+                vec![OCELRelationship::new(&o.id, "job"),OCELRelationship::new(format!("acc_{}", &row.account), "submitter")],
+            );
+            ocel.events.push(e);
+
+            if row.state != JobState::PENDING {
+                if let Some(st) = &row.start_time {
+                    let e = OCELEvent::new(
+                        format!("start-{}-{}", o.id, ocel.events.len()),
+                        "Job Started",
+                        st.and_utc(),
+                        Vec::new(),
+                        vec![OCELRelationship::new(&o.id, "job")],
                     );
-                    match job.as_mut() {
-                        None => {
-                            // This is assumed to then be the first result (i.e., initial job data)
-                            let j: SqueueRow =
-                                serde_json::from_reader(File::open(&d).unwrap()).unwrap();
-
-                            accounts.insert(j.account.clone());
-                            groups.insert(j.group.clone());
-                            partitions.insert(j.partition.clone());
-
-                            let mut o = OCELObject {
-                                id: j.job_id.clone(),
-                                object_type: "Job".to_string(),
-                                attributes: vec![
-                                    OCELObjectAttribute::new(
-                                        "command",
-                                        j.command.split("/").last().unwrap_or_default(),
-                                        DateTime::UNIX_EPOCH,
-                                    ),
-                                    OCELObjectAttribute::new(
-                                        "work_dir",
-                                        j.work_dir.to_string_lossy().to_string(),
-                                        DateTime::UNIX_EPOCH,
-                                    ),
-                                    OCELObjectAttribute::new("cpus", j.cpus, DateTime::UNIX_EPOCH),
-                                    OCELObjectAttribute::new(
-                                        "min_memory",
-                                        &j.min_memory,
-                                        DateTime::UNIX_EPOCH,
-                                    ),
-                                    OCELObjectAttribute::new(
-                                        "state",
-                                        format!("{:?}",&j.state),
-                                        dt.clone(),
-                                    ),
-                                ],
-                                relationships: vec![
-                                    OCELRelationship::new(&j.account, "submitted by"),
-                                    OCELRelationship::new(&j.group, "submitted by group"),
-                                    OCELRelationship::new(&j.partition, "submitted on"),
-                                ],
-                            };
-                            if let Some(exec_host) = &j.exec_host {
-                                o.relationships
-                                    .push(OCELRelationship::new(&exec_host, "executed on"));
-                                execution_hosts.insert(exec_host.clone());
-                            }
-                            job = Some(o);
-                        }
-                        Some(j) => {
-                            type D = <SqueueRow as StructDiff>::Diff;
-                            let delta: Vec<D> =
-                                serde_json::from_reader(File::open(&d).unwrap()).unwrap();
-
-                            for df in delta {
-                                println!("{:?}", df);
-                                match df {
-                                    D::command(c) => {}
-                                    D::work_dir(w) => {}
-                                    D::min_memory(m) => {}
-                                    D::exec_host(h) => {},
-
-                                    D::account(a) => {}
-                                    D::state(s) => {
-                                        // State update => Event!
-                                        match s {
-                                            rust_slurm::JobState::RUNNING => todo!(),
-                                            rust_slurm::JobState::PENDING => todo!(),
-                                            rust_slurm::JobState::COMPLETING => todo!(),
-                                            rust_slurm::JobState::COMPLETED => todo!(),
-                                            rust_slurm::JobState::CANCELLED => todo!(),
-                                            rust_slurm::JobState::FAILED => todo!(),
-                                            rust_slurm::JobState::TIMEOUT => todo!(),
-                                            rust_slurm::JobState::OUT_OF_MEMORY => todo!(),
-                                            rust_slurm::JobState::OTHER(_) => todo!(),
-                                        }
-                                    }
-                                 //   _ => {}
-                                    D::job_id(_) => {}
-                                    D::min_cpus(_) => {}
-                                    D::cpus(_) => {}
-                                    D::nodes(_) => {}
-                                    D::end_time(_) => {}
-                                    D::dependency(_) => {}
-                                    D::features(_) => {}
-                                    D::array_job_id(_) => {}
-                                    D::group(_) => {}
-                                    D::step_job_id(_) => {}
-                                    D::time_limit(_) => {}
-                                    D::name(_) => {}
-                                    D::priority(_) => {}
-                                    D::partition(_) => {}
-                                    D::reason(_) => {}
-                                    D::start_time(t) => {}
-                                    D::submit_time(_) => {}
-                                };
-                            }
-                        }
-
-                    }
-                    if let Some(o) = job.take() {
-                        ocel.objects.push(o);
-                    }
+                    start_ev = Some(e);
                 }
-                Err(_) => todo!(),
+            }
+            let mut last_dt = dt;
+            for d in g.flatten() {
+                let dt = extract_timestamp(
+                    &d.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace("DELTA-", "")
+                        .replace(".json", ""),
+                );
+                if last_dt > dt {
+                    eprintln!("Going backwards in time! {} {last_dt} -> {dt}", o.id);
+                }
+
+                last_dt = dt.clone();
+                type D = <SqueueRow as StructDiff>::Diff;
+                let delta: Vec<D> = serde_json::from_reader(File::open(&d).unwrap()).unwrap();
+                row.apply_mut(delta.clone());
+                for df in delta {
+                    // println!("{:?}", df);
+                    match df {
+                        D::command(c) => {}
+                        D::work_dir(w) => {}
+                        D::min_memory(m) => {}
+                        D::exec_host(h) => {
+                            if let Some(h) = &h {
+                                execution_hosts.insert(h.clone());
+                            }
+                        }
+
+                        D::account(a) => {
+                            accounts.insert(a.clone());
+                        }
+                        D::state(s) => {
+                            // State update => Event!
+                            let mut e = OCELEvent::new(
+                                format!("{}-{}", o.id, ocel.events.len()),
+                                "Submit Job",
+                                dt,
+                                Vec::new(),
+                                vec![OCELRelationship::new(&o.id, "job")],
+                            );
+                            let mut ignore = false;
+                            match s {
+                                rust_slurm::JobState::RUNNING => {
+                                    e.id = format!("{}_{}", "start-", e.id);
+                                    e.event_type = "Job Started".to_string();
+                                    ignore = true;
+                                }
+                                rust_slurm::JobState::COMPLETING => {
+                                    e.id = format!("{}_{}", "ending-", e.id);
+                                    e.event_type = "Job Ending".to_string()
+                                }
+                                rust_slurm::JobState::COMPLETED => {
+                                    e.id = format!("{}_{}", "ended-", e.id);
+                                    e.event_type = "Job Completed".to_string()
+                                }
+                                rust_slurm::JobState::CANCELLED => {
+                                    e.id = format!("{}_{}", "cancelled-", e.id);
+                                    e.event_type = "Job Cancelled".to_string()
+                                }
+                                rust_slurm::JobState::FAILED => {
+                                    e.id = format!("{}_{}", "failed-", e.id);
+                                    e.event_type = "Job Failed".to_string()
+                                }
+                                rust_slurm::JobState::TIMEOUT => {
+                                    e.id = format!("{}_{}", "timeout-", e.id);
+                                    e.event_type = "Job Timeout".to_string()
+                                }
+                                rust_slurm::JobState::OUT_OF_MEMORY => {
+                                    e.id = format!("{}_{}", "oom-", e.id);
+                                    e.event_type = "Job Out Of Memory".to_string()
+                                }
+                                rust_slurm::JobState::PENDING => {
+                                    // Status change TO pending?
+                                    // Hmm..
+                                    eprintln!(
+                                        "Unexpected job ID {} state change to pending. Attrs: {:?}",
+                                        o.id, o.attributes
+                                    );
+                                    ignore = true;
+                                }
+                                rust_slurm::JobState::OTHER(other) => {
+                                    eprintln!("Unexpected job state change to other: {}", other);
+                                    ignore = true;
+                                }
+                            }
+                            if !ignore {
+                                ocel.events.push(e);
+                            }
+                        }
+                        D::group(g) => {
+                            groups.insert(g.clone());
+                        }
+                        D::partition(p) => {
+                            partitions.insert(p.clone());
+                        }
+                        //   _ => {}
+                        D::job_id(_) => {}
+                        D::min_cpus(_) => {}
+                        D::cpus(_) => {}
+                        D::nodes(_) => {}
+                        D::end_time(_) => {}
+                        D::dependency(_) => {}
+                        D::features(_) => {}
+                        D::array_job_id(_) => {}
+                        D::step_job_id(_) => {}
+                        D::time_limit(_) => {}
+                        D::name(_) => {}
+                        D::priority(_) => {}
+                        D::reason(_) => {}
+                        D::start_time(st) => {
+                            if row.state != JobState::PENDING {
+                                if let Some(st) = st {
+                                    if let Some(e) = start_ev.as_mut() {
+                                        e.time = st.and_utc().into();
+                                    }else {
+                                        let e = OCELEvent::new(
+                                            format!("start-{}-{}", o.id, ocel.events.len()),
+                                            "Job Started",
+                                            st.and_utc(),
+                                            Vec::new(),
+                                            vec![OCELRelationship::new(&o.id, "job")],
+                                        );
+                                        start_ev = Some(e);
+                                    }
+                                }
+                            }
+                        }
+                        D::submit_time(_) => {}
+                    };
+                }
+            }
+            ocel.objects.push(o);
+            if let Some(e) = start_ev {
+                ocel.events.push(e);
             }
         }
     }
+
+    ocel.objects.extend(accounts.iter().map(|a| OCELObject {
+        id: format!("acc_{}", a),
+        object_type: "Account".to_string(),
+        attributes: Vec::default(),
+        relationships: Vec::default(),
+    }));
+
+    ocel.objects.extend(groups.iter().map(|a| OCELObject {
+        id: format!("group_{}", a),
+        object_type: "Group".to_string(),
+        attributes: Vec::default(),
+        relationships: Vec::default(),
+    }));
+
+    ocel.objects.extend(partitions.iter().map(|a| OCELObject {
+        id: format!("part_{}", a),
+        object_type: "Partition".to_string(),
+        attributes: Vec::default(),
+        relationships: Vec::default(),
+    }));
+
+    ocel.objects
+        .extend(execution_hosts.iter().map(|a| OCELObject {
+            id: format!("host_{}", a),
+            object_type: "Host".to_string(),
+            attributes: Vec::default(),
+            relationships: Vec::default(),
+        }));
+
+    export_ocel_json_path(&ocel, "NEW-ocel-export.json").unwrap();
 }
 
 pub fn extract_timestamp(s: &str) -> DateTime<Utc> {
