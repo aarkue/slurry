@@ -92,6 +92,7 @@ async fn start_squeue_loop<'a>(
                         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                     }
                 } else {
+                    drop(l);
                     eprintln!("No logged-in client available.");
                     state.write().await.looping_info = None;
                     break 'inf_loop;
