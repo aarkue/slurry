@@ -1,6 +1,6 @@
 import { connectionFormSchema } from "@/AppContext";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "./ui/button";
@@ -15,14 +15,17 @@ import {
 import { Input } from "./ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "./ui/input-otp";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-
-export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: boolean, onSubmit: (config: z.infer<typeof connectionFormSchema>) => any}) {
+import { Checkbox } from "./ui/checkbox";
+import { Check } from "lucide-react";
+import { Label } from "./ui/label";
+const SAVED_AUTH_LOCAL_STORAGE_KEY = "saved-auth";
+export default function ConnectionConfigForm({ onSubmit, disabled }: { disabled?: boolean, onSubmit: (config: z.infer<typeof connectionFormSchema>) => any }) {
   // const { runSqueue: testSqueue } = useContext(AppContext);
   // const [isLoading, setIsLoading] = useState(false);
   // const [isPollingWith, setIsPollingWith] = useState<
   //   z.infer<typeof connectionFormSchema> | undefined
   // >(undefined);
-
+  const [saveLoginInfo, setSaveLoginInfo] = useState(false);
   const form = useForm<z.infer<typeof connectionFormSchema>>({
     resolver: zodResolver(connectionFormSchema),
     defaultValues: {
@@ -32,9 +35,35 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
     },
   });
 
+  useEffect(() => {
+    const s = localStorage.getItem(SAVED_AUTH_LOCAL_STORAGE_KEY);
+    if(s != null){
+      try{
+        let l: z.infer<typeof connectionFormSchema> = JSON.parse(s);
+        console.log("Got login info",l);
+        form.reset(l);
+      }catch(e){
+        console.error("Failed to parse saved login data")
+      }
+    }
+  },[])
+
   const submitCallback = useCallback(
     (values: z.infer<typeof connectionFormSchema>) => {
-      onSubmit(values);
+      try {
+        console.log(saveLoginInfo)
+        if (saveLoginInfo) {
+          const saveCopy = structuredClone(values);
+          if (saveCopy.auth.mode === "password-mfa") {
+            saveCopy.auth.mfaCode = "";
+          }
+          localStorage.setItem(SAVED_AUTH_LOCAL_STORAGE_KEY, JSON.stringify(saveCopy))
+        }
+      } catch (e) {
+        console.error("Failed to save login data: " + String(e));
+      } finally {
+        onSubmit(values);
+      }
       // setIsLoading(true);
       // toast
       //   .promise(testSqueue(values), {
@@ -99,7 +128,7 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
               )}
             />
 
-            <FormField  disabled={disabled}
+            <FormField disabled={disabled}
               control={form.control}
               name="host.1"
               render={({ field }) => (
@@ -114,7 +143,7 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
             />
           </div>
 
-          <FormField  disabled={disabled}
+          <FormField disabled={disabled}
             control={form.control}
             name="username"
             render={({ field }) => (
@@ -157,12 +186,12 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
                     }}
                   >
                     <TabsList>
-                      <TabsTrigger  disabled={disabled}
+                      <TabsTrigger disabled={disabled}
                         value="password-mfa"
                       >
                         Password + MFA
                       </TabsTrigger>
-                      <TabsTrigger  disabled={disabled}
+                      <TabsTrigger disabled={disabled}
                         value="ssh-key"
                       >
                         Private SSH Keyfile
@@ -171,7 +200,7 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
                     <div className="text-left ml-4">
                       <TabsContent value="password-mfa">
                         Login using a password and optionally a MFA token.
-                        <FormField  disabled={disabled}
+                        <FormField disabled={disabled}
                           control={form.control}
                           name="auth.password"
                           render={({ field }) => (
@@ -188,7 +217,7 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
                             </FormItem>
                           )}
                         />
-                        <FormField  disabled={disabled}
+                        <FormField disabled={disabled}
                           control={form.control}
                           name="auth.mfaCode"
                           render={({ field }) => (
@@ -215,7 +244,7 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
                       <TabsContent value="ssh-key">
                         Login using a private SSH key, optionally protected with
                         an additional passcode.
-                        <FormField  disabled={disabled}
+                        <FormField disabled={disabled}
                           control={form.control}
                           name="auth.path"
                           render={({ field }) => (
@@ -228,7 +257,7 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
                             </FormItem>
                           )}
                         />
-                        <FormField  disabled={disabled}
+                        <FormField disabled={disabled}
                           control={form.control}
                           name="auth.passcode"
                           render={({ field }) => (
@@ -254,6 +283,10 @@ export default function ConnectionConfigForm({onSubmit, disabled}: {disabled?: b
               </FormItem>
             )}
           />
+          <Label className="flex items-center mb-2">
+            <Checkbox className="mr-1" checked={saveLoginInfo} onCheckedChange={(c) => setSaveLoginInfo(c)} />
+            Save login info
+          </Label>
         </div>
 
         <Button disabled={disabled}
