@@ -386,9 +386,9 @@ pub async fn squeue_diff<'a, 'b>(
     path: &Path,
     known_jobs: &'b mut HashMap<String, SqueueRow>,
     all_ids: &'b mut HashSet<String>,
-) -> Result<(), Error> {
+) -> Result<(DateTime<Utc>,Vec<SqueueRow>), Error> {
     let (time, rows) = get_squeue_res(client).await?;
-    let cleaned_time = time.to_rfc3339().replace(":", "-");
+    let cleaned_time = time.to_rfc3339().replace(":", "_");
     let row_ids = rows
         .iter()
         .map(|r| r.job_id.clone())
@@ -406,7 +406,7 @@ pub async fn squeue_diff<'a, 'b>(
     ) {
         eprintln!("Failed to create file for all jobs ids: {:?}", e);
     }
-    for row in rows {
+    for row in &rows {
         if let Some(prev_row) = known_jobs.get_mut(&row.job_id) {
             // Job is known!
             // Compute delta
@@ -423,7 +423,7 @@ pub async fn squeue_diff<'a, 'b>(
             }
         }
             // Update prev_row in known_jobs
-            *prev_row = row;
+            *prev_row = row.clone();
         } else {
             // Job is new!
             // Double check with all_ids:
@@ -439,13 +439,13 @@ pub async fn squeue_diff<'a, 'b>(
             {
                 eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
             }
-            known_jobs.insert(row.job_id.clone(), row);
+            known_jobs.insert(row.job_id.clone(), row.clone());
         }
     }
     // Remove all known jobs which
     known_jobs.retain(|j_id, _| row_ids.contains(j_id));
     all_ids.extend(row_ids);
-    Ok(())
+    Ok((time,rows))
 }
 
 #[cfg(test)]

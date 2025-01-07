@@ -1,3 +1,4 @@
+import { time } from "console";
 import { createContext } from "react";
 import { z } from "zod";
 
@@ -33,20 +34,31 @@ export const connectionFormSchema = z.object({
 export type SqueueRow = {account: string, state: string}
 export type AppContextType = {
   runSqueue: () => Promise<string>;
+  startSqueueLoop: (second_interval: number) => Promise<string>;
+  stopSqueueLoop: () => Promise<string>,
+  getLoopInfo: () => Promise<{secondInterval: number, runningSince: string, path: string}>,
   getSqueue: () => Promise<[string,SqueueRow[]]>,
   extractOCEL: (data: [string, any][]) => Promise<string>;
   login: (cfg: z.infer<typeof connectionFormSchema>) => Promise<string>;
   logout: () => Promise<string>,
+  isLoggedIn: () => Promise<boolean>,
+  // Return unlisten function (to de-register)
+  listenSqueue: (a: (timeAndRows: [string,SqueueRow[]]) => unknown) => Promise<() => unknown>,
 };
 
-const throwNoContext = async () => {
+const throwNoContext = () => {
   throw new Error("No Context");
 };
 export const DEFAULT_NO_CONTEXT: AppContextType = {
   runSqueue: throwNoContext,
   getSqueue: throwNoContext,
+  startSqueueLoop: throwNoContext,
+  stopSqueueLoop: throwNoContext,
+  getLoopInfo: throwNoContext,
   extractOCEL: throwNoContext,
   login: throwNoContext,
   logout: throwNoContext,
+  isLoggedIn: throwNoContext,
+  listenSqueue: throwNoContext
 };
 export const AppContext = createContext<AppContextType>(DEFAULT_NO_CONTEXT);

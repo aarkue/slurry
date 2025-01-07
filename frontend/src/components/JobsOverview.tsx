@@ -1,4 +1,4 @@
-import { AppContext } from '@/AppContext';
+import { AppContext, SqueueRow } from '@/AppContext';
 import { ResponsiveLine } from '@nivo/line';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { Label } from './ui/label';
@@ -27,25 +27,35 @@ function getColorForState(state: string): any {
 
 export default function JobsOverview() {
     const [data, setData] = useState<{ time: Date, counts: Record<string, number> }[]>([]);
-    const { getSqueue } = useContext(AppContext);
-    const updateData = useCallback(() => getSqueue().then(([time, rows]) => {
-        const counts: Record<string, number> = {};
-        for (const row of rows) {
-            if (!(row.state in counts)) {
-                counts[row.state] = 0;
-            }
-            counts[row.state] += 1;
-        }
-        console.log(counts)
-        setData((prevData) => [...prevData, { time: new Date(time), counts }])
-    }), []);
+    const { listenSqueue } = useContext(AppContext);
     useEffect(() => {
-        updateData()
-        const t = setInterval(() => {
-            updateData()
-        }, 10 * 1000);
+        let unregister: (() => unknown) | undefined;
+        let abort = false;
+        listenSqueue(([time, rows]) => {
+            console.log("GOT SQUEUE")
+                const counts: Record<string, number> = {};
+                for (const row of rows) {
+                    if (!(row.state in counts)) {
+                        counts[row.state] = 0;
+                    }
+                    counts[row.state] += 1;
+                }
+                console.log(counts)
+                setData((prevData) => [...prevData, { time: new Date(time), counts }])
+        }).then((ur) => {
+            console.log("GOT UNREGISTER")
+            if (abort) {
+                console.log("Aborting...");
+                ur()
+            } else {
+                unregister = ur
+            }
+        })
         return () => {
-            clearInterval(t);
+            abort = true;
+            if (unregister !== undefined) {
+                unregister();
+            }
         }
     }, [])
     const [mode, setMode] = useState<'all' | 'exit'>('all');
@@ -53,11 +63,11 @@ export default function JobsOverview() {
     return <div className='h-[20rem] w-11/12 mx-auto'>
         <div className='flex flex-col items-center gap-1'>
 
-        <Label className='text-base'>Status Codes</Label>
-        <ToggleGroup variant="outline" type="single" value={mode} onValueChange={(e) => setMode(e === "all" ? "all" : "exit")}>
-            <ToggleGroupItem value="all">All</ToggleGroupItem>
-            <ToggleGroupItem value="exit">Exit</ToggleGroupItem>
-        </ToggleGroup>
+            <Label className='text-base'>Status Codes</Label>
+            <ToggleGroup variant="outline" type="single" value={mode} onValueChange={(e) => setMode(e === "all" ? "all" : "exit")}>
+                <ToggleGroupItem value="all">All</ToggleGroupItem>
+                <ToggleGroupItem value="exit">Exit</ToggleGroupItem>
+            </ToggleGroup>
         </div>
         {data.length > 0 && <MyResponsiveLine data={
             (mode === 'all' ? [...(new Set(["PENDING", "RUNNING", "COMPLETING", "COMPLETED", "FAILED", "OUT_OF_MEMORY", "CANCELLED"])).values()]

@@ -3,7 +3,10 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter},
     path::PathBuf,
+    sync::Arc,
+    thread, time::SystemTime,
 };
+use tauri::{async_runtime, AppHandle, Emitter, Manager};
 
 use anyhow::Error;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
@@ -17,20 +20,24 @@ use process_mining::{
     OCEL,
 };
 use rust_slurm::{
-    self, get_squeue_res, login_with_cfg, Client, ConnectionConfig, SqueueRow,
+    self, get_squeue_res, login_with_cfg, squeue_diff, Client, ConnectionConfig, JobState,
+    SqueueRow,
 };
 use serde::Serialize;
 use serde_json::map::Keys;
 use structdiff::StructDiff;
-use tauri::{async_runtime::Mutex, State};
+use tauri::{
+    async_runtime::{Mutex, RwLock},
+    State,
+};
 
 #[tauri::command]
-async fn run_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, CmdError> {
-    if let Some(client) = &state.lock().await.client {
+async fn run_squeue<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<String, CmdError> {
+    if let Some(client) = &state.read().await.client {
         let (time, jobs) = get_squeue_res(&client).await?;
         serde_json::to_writer_pretty(
             BufWriter::new(
-                File::create(format!("{}.json", time.to_rfc3339().replace(":", "-"))).unwrap(),
+                File::create(format!("{}.json", time.to_rfc3339().replace(":", "_"))).unwrap(),
             ),
             &jobs,
         )
@@ -40,12 +47,91 @@ async fn run_squeue<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, Cmd
         Err(Error::msg("No logged-in client available.").into())
     }
 }
+use tauri_plugin_dialog::DialogExt;
+#[tauri::command]
+async fn start_squeue_loop<'a>(
+    app: AppHandle,
+    state: State<'a, Arc<RwLock<AppState>>>,
+    looping_interval: u64,
+) -> Result<String, CmdError> {
+    let path = app.dialog().file().set_directory(app.path().download_dir().unwrap()).blocking_pick_folder();
+    if let Some(path) = path {
+        let state = Arc::clone(&state);
+        let path = path
+            .into_path()
+            .map_err(|e| Error::msg(format!("Could not handle this folder path: {:?}", e)))?
+            .join(format!("squeue_results_{}",DateTime::<Utc>::from(SystemTime::now()).to_rfc3339().replace(":","_")));
+        state.write().await.looping_info = Some(LoopingInfo {
+            second_interval: looping_interval,
+            running_since: std::time::SystemTime::now().into(),
+            path: path.clone()
+        });
+        async_runtime::spawn(async move {
+            let mut known_jobs = HashMap::default();
+            let mut all_ids = HashSet::default();
+            let mut i = 0;
+            'inf_loop: loop {
+                // if let Some(LoopingInfo {
+                //     second_interval, ..
+                // }) = &state.read().await.looping_info.clone()
+                // {
+                let l = state.read().await;
+                if let Some(client) = &l.client {
+                    let res = squeue_diff(&client, &path, &mut known_jobs, &mut all_ids)
+                        .await
+                        .unwrap();
+                    app.emit("squeue-rows", &res).unwrap();
+                    i += 1;
+                    drop(l);
+                    println!("Ran for {} iterations, sleeping...", i);
+                    for _ in 1..looping_interval {
+                        if state.read().await.looping_info.is_none() {
+                            println!("Stopping loop after {} iterations!", i);
+                            break 'inf_loop;
+                        }
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
+                } else {
+                    eprintln!("No logged-in client available.");
+                    state.write().await.looping_info = None;
+                    break 'inf_loop;
+                }
+            }
+        });
+        Ok("Loop running in background".to_string())
+    } else {
+        Err(Error::msg("No folder path selected.").into())
+    }
+}
+
+#[tauri::command]
+async fn stop_squeue_loop<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<String, CmdError> {
+    if let Some(looping_info) = state.write().await.looping_info.take() {
+        Ok(format!(
+            "Stopped Loop running since {}",
+            looping_info.running_since
+        ))
+    } else {
+        Err(Error::msg("No loop currently running").into())
+    }
+}
+
+#[tauri::command]
+async fn get_loop_info<'a>(
+    state: State<'a, Arc<RwLock<AppState>>>,
+) -> Result<LoopingInfo, CmdError> {
+    if let Some(looping_info) = &state.read().await.looping_info {
+        Ok(looping_info.clone())
+    } else {
+        Err(Error::msg("No loop currently running").into())
+    }
+}
 
 #[tauri::command]
 async fn get_squeue<'a>(
-    state: State<'a, Mutex<AppState>>,
+    state: State<'a, Arc<RwLock<AppState>>>,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), CmdError> {
-    if let Some(client) = &state.lock().await.client {
+    if let Some(client) = &state.read().await.client {
         let (time, jobs) = get_squeue_res(&client).await?;
         Ok((time, jobs))
     } else {
@@ -55,17 +141,22 @@ async fn get_squeue<'a>(
 
 #[tauri::command]
 async fn login<'a>(
-    state: State<'a, Mutex<AppState>>,
+    state: State<'a, Arc<RwLock<AppState>>>,
     cfg: ConnectionConfig,
 ) -> Result<String, CmdError> {
     let client = login_with_cfg(&cfg).await?;
-    state.lock().await.client = Some(client);
+    state.write().await.client = Some(client);
     Ok(String::from("OK"))
 }
 
 #[tauri::command]
-async fn logout<'a>(state: State<'a, Mutex<AppState>>) -> Result<String, CmdError> {
-    if let Some(client) = state.lock().await.client.take() {
+async fn is_logged_in<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<bool, CmdError> {
+    Ok(state.read().await.client.is_some())
+}
+
+#[tauri::command]
+async fn logout<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<String, CmdError> {
+    if let Some(client) = state.write().await.client.take() {
         if let Err(e) = client.disconnect().await {
             return Err(Error::from(e).into());
         }
@@ -339,13 +430,18 @@ impl Serialize for CmdError {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(Mutex::new(AppState::default()))
+        .plugin(tauri_plugin_dialog::init())
+        .manage(Arc::new(RwLock::new(AppState::default())))
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             run_squeue,
+            start_squeue_loop,
+            stop_squeue_loop,
+            get_loop_info,
             extract_ocel,
             login,
             logout,
+            is_logged_in,
             get_squeue
         ])
         .run(tauri::generate_context!())
@@ -355,6 +451,15 @@ pub fn run() {
 #[derive(Debug, Default)]
 struct AppState {
     pub client: Option<Client>,
+    pub looping_info: Option<LoopingInfo>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LoopingInfo {
+    second_interval: u64,
+    running_since: DateTime<Utc>,
+    path: PathBuf,
 }
 
 #[test]
@@ -522,7 +627,10 @@ fn extract_oced_delta() {
                 "Submit Job",
                 row.submit_time.and_utc(),
                 Vec::new(),
-                vec![OCELRelationship::new(&o.id, "job"),OCELRelationship::new(format!("acc_{}", &row.account), "submitter")],
+                vec![
+                    OCELRelationship::new(&o.id, "job"),
+                    OCELRelationship::new(format!("acc_{}", &row.account), "submitter"),
+                ],
             );
             ocel.events.push(e);
 
@@ -653,7 +761,7 @@ fn extract_oced_delta() {
                                 if let Some(st) = st {
                                     if let Some(e) = start_ev.as_mut() {
                                         e.time = st.and_utc().into();
-                                    }else {
+                                    } else {
                                         let e = OCELEvent::new(
                                             format!("start-{}-{}", o.id, ocel.events.len()),
                                             "Job Started",
@@ -711,7 +819,9 @@ fn extract_oced_delta() {
 
 pub fn extract_timestamp(s: &str) -> DateTime<Utc> {
     // 2025-01-04T00-55-04.789009695+00-00
-    let (date, time) = s.split_once("T").unwrap();
-    let dt_rfc = format!("{}T{}", date, time.replace("-", ":"));
-    DateTime::parse_from_rfc3339(&dt_rfc).unwrap().to_utc()
+    // let (date, time) = s.split_once("T").unwrap();
+    // let dt_rfc = format!("{}T{}", date, time.replace("-", ":"));
+    // DateTime::parse_from_rfc3339(&dt_rfc).unwrap().to_utc()
+    DateTime::parse_from_rfc3339(&s.replace("_", ":")).unwrap().to_utc()
+
 }
