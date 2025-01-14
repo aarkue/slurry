@@ -505,6 +505,11 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                 name: "Job Out Of Memory".to_string(),
                 attributes: vec![],
             });
+
+            ocel.event_types.push(OCELType {
+                name: "Job Node Fail".to_string(),
+                attributes: vec![],
+            });
             let src_path = src_path.as_path().unwrap();
             let mut jobs_per_time: HashMap<DateTime<Utc>, HashSet<String>> = HashMap::new();
             for entry in glob(&src_path.join("*.json").to_string_lossy()).expect("Glob failed") {
@@ -698,6 +703,10 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                         rust_slurm::JobState::OUT_OF_MEMORY => {
                                             e.id = format!("{}_{}", "oom-", e.id);
                                             e.event_type = "Job Out Of Memory".to_string()
+                                        }
+                                        rust_slurm::JobState::NODE_FAIL => {
+                                            e.id = format!("{}_{}", "node-fail-", e.id);
+                                            e.event_type = "Job Node Fail".to_string()
                                         }
                                         rust_slurm::JobState::PENDING => {
                                             // Status change TO pending?

@@ -224,6 +224,8 @@ pub enum JobState {
     TIMEOUT,
     #[allow(non_camel_case_types)]
     OUT_OF_MEMORY,
+    #[allow(non_camel_case_types)]
+    NODE_FAIL,
     OTHER(String),
 }
 
@@ -238,6 +240,7 @@ impl JobState {
             "FAILED" => Ok(Self::FAILED),
             "TIMEOUT" => Ok(Self::TIMEOUT),
             "OUT_OF_MEMORY" => Ok(Self::OUT_OF_MEMORY),
+            "NODE_FAIL" => Ok(Self::NODE_FAIL),
             s => {
                 println!("Unhandled job state: {} detected!", s);
                 Ok(Self::OTHER(s.to_string()))
@@ -245,7 +248,6 @@ impl JobState {
         }
     }
 }
-
 
 #[cfg(feature = "ssh")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -368,7 +370,7 @@ where
         "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}'"
     ))
     .await?;
-let res_lines = result.split("\n");
+    let res_lines = result.split("\n");
 
     // For checking columns:
     // let _column_str = res_lines
@@ -412,7 +414,7 @@ pub async fn get_squeue_res_locally<'a>() -> Result<(DateTime<Utc>, Vec<SqueueRo
         let out = cmd.output()?;
         let s = String::from_utf8(out.stdout)?;
         // println!("{:?}",out);
-        println!("Running squeue took {:?}",d.elapsed());
+        println!("Running squeue took {:?}", d.elapsed());
         Ok(s)
     })
     .await
@@ -460,8 +462,8 @@ where
     ) {
         eprintln!("Failed to create file for all jobs ids: {:?}", e);
     }
-    for row in &rows.par_iter() {
-        if let Some(prev_row) = known_jobs.get_mut(&row.job_id) {
+    *known_jobs = rows.par_iter().map(|row| {
+        if let Some(prev_row) = known_jobs.get(&row.job_id) {
             // Job is known!
             // Compute delta
             let diff = prev_row.diff(row);
@@ -477,7 +479,9 @@ where
                 }
             }
             // Update prev_row in known_jobs
-            *prev_row = row.clone();
+            (row.job_id.clone(), row.clone())
+            // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
+            // *prev_row = row.clone();
         } else {
             // Job is new!
             // Double check with all_ids:
@@ -485,7 +489,7 @@ where
                 eprintln!("Job re-appeared! Maybe IDs get reused?");
             }
             let folder_path = path.join(&row.job_id);
-            create_dir_all(&folder_path)?;
+            create_dir_all(&folder_path).unwrap();
             // Save job (e.g., as JSON)
             let save_path = folder_path.join(format!("{}.json", cleaned_time));
             if let Err(e) =
@@ -493,11 +497,13 @@ where
             {
                 eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
             }
-            known_jobs.insert(row.job_id.clone(), row.clone());
+            // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
+            (row.job_id.clone(), row.clone())
         }
-    }
+    }).collect();
+    // let known_jobs = rw.into_inner().unwrap();
     // Remove all known jobs which
-    known_jobs.retain(|j_id, _| row_ids.contains(j_id));
+    // known_jobs.retain(|j_id, _| row_ids.contains(j_id));
     all_ids.extend(row_ids);
     Ok((time, rows))
 }
@@ -545,7 +551,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_local(){
+    async fn test_local() {
         let res = get_squeue_res_locally().await.unwrap();
         println!("Got {} results", res.1.len())
     }

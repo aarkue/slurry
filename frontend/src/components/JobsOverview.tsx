@@ -20,8 +20,12 @@ function getColorForState(state: string): any {
             return "#95bec2";
         case "OUT_OF_MEMORY":
             return "#ff96d0";
+        case "NODE_FAIL":
+            return "#ff96c3";
+        case "TIMEOUT":
+            return "#95acc1"
     }
-    return "black";
+    return "white";
 }
 
 
@@ -33,15 +37,15 @@ export default function JobsOverview() {
         let abort = false;
         listenSqueue(([time, rows]) => {
             console.log("GOT SQUEUE")
-                const counts: Record<string, number> = {};
-                for (const row of rows) {
-                    if (!(row.state in counts)) {
-                        counts[row.state] = 0;
-                    }
-                    counts[row.state] += 1;
+            const counts: Record<string, number> = {};
+            for (const row of rows) {
+                if (!(row.state in counts)) {
+                    counts[row.state] = 0;
                 }
-                console.log(counts)
-                setData((prevData) => [...prevData, { time: new Date(time), counts }])
+                counts[row.state] += 1;
+            }
+            console.log(counts)
+            setData((prevData) => [...prevData, { time: new Date(time), counts }])
         }).then((ur) => {
             console.log("GOT UNREGISTER")
             if (abort) {
@@ -70,8 +74,8 @@ export default function JobsOverview() {
             </ToggleGroup>
         </div>
         {data.length > 0 && <MyResponsiveLine data={
-            (mode === 'all' ? [...(new Set(["PENDING", "RUNNING", "COMPLETING", "COMPLETED", "FAILED", "OUT_OF_MEMORY", "CANCELLED"])).values()]
-                : ["COMPLETED", "FAILED", "OUT_OF_MEMORY", "CANCELLED"])
+            (mode === 'all' ? [...(new Set(["PENDING", "RUNNING", "COMPLETING", "COMPLETED", "FAILED", "OUT_OF_MEMORY", "NODE_FAIL", "TIMEOUT", "CANCELLED"])).values()]
+                : ["COMPLETED", "FAILED", "OUT_OF_MEMORY", "NODE_FAIL", "TIMEOUT", "CANCELLED"])
                 .map((state) => ({
                     id: state,
                     color: getColorForState(state),
