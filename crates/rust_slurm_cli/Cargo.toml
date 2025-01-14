@@ -1,0 +1,9 @@
+[package]
+name = "rust_slurm_cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.26", features = ["derive"] }
+rust_slurm = {path = "../rust_slurm/", features = [] }
+tokio = {version = "1", features = ["full"]}

@@ -15,17 +15,27 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { AppContext } from "@/AppContext";
 type FileWithInfo = { file: File; timestamp: string | null };
+
 export default function OCELExtractor() {
-  const [files, setFiles] = useState<FileWithInfo[]>([]);
-  const [editFileDialog, setEditFileDialog] = useState<{
-    info: FileWithInfo;
-    index: number;
-  }>();
+  // const [files, setFiles] = useState<FileWithInfo[]>([]);
+  // const [editFileDialog, setEditFileDialog] = useState<{
+  //   info: FileWithInfo;
+  //   index: number;
+  // }>();
   const [loading, setLoading] = useState(false);
   const backend = useContext(AppContext);
   return (
-    <div>
-      <DropZone
+    <div className="text-center">
+      <Button onClick={() => {
+        toast.promise(backend.extractOCEL(),{
+          loading: "Extracting...",
+          success: (s) => s,
+          error: (e) => `Failed to extract: ${String(e)}`
+        });
+      }}>
+        Extract OCEL
+      </Button>
+      {/* <DropZone
         onFilesAdded={(newFiles) => {
           setFiles((fs) => [
             ...fs,
@@ -39,8 +49,8 @@ export default function OCELExtractor() {
             }),
           ]);
         }}
-      />
-      <div className="max-w-lg mx-auto my-2">
+      /> */}
+      {/* <div className="max-w-lg mx-auto my-2">
         <div className="flex justify-between">
           <h3 className="text-xl font-semibold">Selected Files</h3>
           <Button
@@ -193,7 +203,8 @@ export default function OCELExtractor() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog> */}
     </div>
   );
 }
+ 

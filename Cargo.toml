@@ -3,5 +3,5 @@ resolver = "2"
 
 members = [
 	"app/src-tauri/",
-    "crates/rust_slurm/",
+    "crates/rust_slurm/", "crates/rust_slurm_cli",
 ]

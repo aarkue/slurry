@@ -1,18 +1,25 @@
 use std::{
     collections::{HashMap, HashSet},
     fs::{create_dir_all, File},
+    future::Future,
     io::BufWriter,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    process::Command,
+    time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::Error;
-use async_ssh2_tokio::client::{AuthKeyboardInteractive, AuthMethod, ServerCheckMethod};
-pub use async_ssh2_tokio::Client;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use rayon::iter::IntoParallelRefIterator;
 use serde::{Deserialize, Serialize};
 use structdiff::{Difference, StructDiff};
+
+#[cfg(feature = "ssh")]
+use async_ssh2_tokio::client::{AuthKeyboardInteractive, AuthMethod, ServerCheckMethod};
+#[cfg(feature = "ssh")]
 const SERVER_CHECK_METHOD: ServerCheckMethod = ServerCheckMethod::NoCheck;
+#[cfg(feature = "ssh")]
+pub use async_ssh2_tokio::Client;
 
 // https://slurm.schedmd.com/squeue.html
 const SQUEUE_FORMAT_STR: &str =
@@ -177,17 +184,17 @@ impl SqueueRow {
             ), // todo!(), // 11
             time_limit: match vals[12] {
                 "INVALID" => None,
-                s => parse_slurm_duration(s).map(|d| Some(d)).unwrap_or_default(),
+                s => parse_slurm_duration(s).map(Some).unwrap_or_default(),
             }, // 12
             time_left: match vals[13] {
                 "INVALID" => None,
-                s => parse_slurm_duration(s).map(|d| Some(d)).unwrap_or_default(),
+                s => parse_slurm_duration(s).map(Some).unwrap_or_default(),
             }, // 13
             name: vals[14].to_string(),       // 14
             min_memory: vals[15].to_string(), // 15
             time: match vals[16] {
                 "INVALID" => None,
-                s => parse_slurm_duration(s).map(|d| Some(d)).unwrap_or_default(),
+                s => parse_slurm_duration(s).map(Some).unwrap_or_default(),
             },
             priority: vals[17]
                 .parse()
@@ -239,12 +246,16 @@ impl JobState {
     }
 }
 
+
+#[cfg(feature = "ssh")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
     pub host: (String, u16),
     pub username: String,
     pub auth: ConnectionAuth,
 }
+
+#[cfg(feature = "ssh")]
 impl ConnectionConfig {
     pub fn default() -> Self {
         ConnectionConfig {
@@ -282,6 +293,7 @@ impl ConnectionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "mode")]
+#[cfg(feature = "ssh")]
 pub enum ConnectionAuth {
     #[serde(rename = "password-mfa")]
     PasswordMFA {
@@ -296,9 +308,10 @@ pub enum ConnectionAuth {
     },
 }
 
-impl Into<AuthMethod> for ConnectionAuth {
-    fn into(self) -> AuthMethod {
-        match self {
+#[cfg(feature = "ssh")]
+impl From<ConnectionAuth> for AuthMethod {
+    fn from(val: ConnectionAuth) -> Self {
+        match val {
             ConnectionAuth::PasswordMFA { password, mfa_code } => {
                 AuthMethod::with_keyboard_interactive(
                     AuthKeyboardInteractive::new()
@@ -313,9 +326,10 @@ impl Into<AuthMethod> for ConnectionAuth {
     }
 }
 
-impl Into<AuthMethod> for &ConnectionAuth {
-    fn into(self) -> AuthMethod {
-        match self {
+#[cfg(feature = "ssh")]
+impl From<&ConnectionAuth> for AuthMethod {
+    fn from(val: &ConnectionAuth) -> Self {
+        match val {
             ConnectionAuth::PasswordMFA { password, mfa_code } => {
                 AuthMethod::with_keyboard_interactive(
                     AuthKeyboardInteractive::new()
@@ -330,6 +344,7 @@ impl Into<AuthMethod> for &ConnectionAuth {
     }
 }
 
+#[cfg(feature = "ssh")]
 pub async fn login_with_cfg(cfg: &ConnectionConfig) -> Result<Client, Error> {
     let auth_method = (&cfg.auth).into();
     let client = Client::connect(
@@ -341,16 +356,21 @@ pub async fn login_with_cfg(cfg: &ConnectionConfig) -> Result<Client, Error> {
     .await?;
     Ok(client)
 }
+use std::io::Write;
+pub async fn get_squeue_res<F, Fut>(
+    execute_cmd: F,
+) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: Future<Output = Result<String, Error>>,
+{
+    let result = execute_cmd(format!(
+        "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}'"
+    ))
+    .await?;
+let res_lines = result.split("\n");
 
-pub async fn get_squeue_res<'a>(
-    client: &'a Client,
-) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
-    let result = client
-        .execute(&format!(
-            "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}'"
-        ))
-        .await?;
-    let mut res_lines = result.stdout.split("\n");
+    // For checking columns:
     // let _column_str = res_lines
     //     .next()
     //     .ok_or(Error::msg("No line breaks in output"))?
@@ -381,13 +401,48 @@ pub async fn get_squeue_res<'a>(
     Ok((time, d))
 }
 
-pub async fn squeue_diff<'a, 'b>(
+pub async fn get_squeue_res_locally<'a>() -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
+    get_squeue_res(|cmd_s| async move {
+        // let splits: Vec<&str> = cmd.split(" ").collect();
+        // println!("{:#?}",splits);
+        // cmd.args(splits.iter().skip(1));
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(format!("{cmd_s}"));
+        let d = Instant::now();
+        let out = cmd.output()?;
+        let s = String::from_utf8(out.stdout)?;
+        // println!("{:?}",out);
+        println!("Running squeue took {:?}",d.elapsed());
+        Ok(s)
+    })
+    .await
+}
+
+#[cfg(feature = "ssh")]
+pub async fn get_squeue_res_ssh<'a>(
     client: &'a Client,
+) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
+    get_squeue_res(|cmd| async move {
+        let r = client.execute(&cmd).await?;
+        Ok(r.stdout)
+    })
+    .await
+}
+use rayon::prelude::*;
+
+pub async fn squeue_diff<'a, 'b, F, Fut>(
+    get_squeue: F,
+    // client: &'a Client,
     path: &Path,
     known_jobs: &'b mut HashMap<String, SqueueRow>,
     all_ids: &'b mut HashSet<String>,
-) -> Result<(DateTime<Utc>,Vec<SqueueRow>), Error> {
-    let (time, rows) = get_squeue_res(client).await?;
+) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<(DateTime<Utc>, Vec<SqueueRow>), Error>>,
+{
+    let (time, rows) = get_squeue().await?;
+    // let (time, rows) = get_squeue_res(client).await?;
     let cleaned_time = time.to_rfc3339().replace(":", "_");
     let row_ids = rows
         .iter()
@@ -395,10 +450,9 @@ pub async fn squeue_diff<'a, 'b>(
         .collect::<HashSet<_>>();
     // Sanity check
     if rows.len() != row_ids.len() {
-        eprintln!("Count mismatch: {} != {}",rows.len(),row_ids.len());
-
+        eprintln!("Count mismatch: {} != {}", rows.len(), row_ids.len());
     }
-    create_dir_all(&path)?;
+    create_dir_all(path)?;
     let id_save_path = path.join(format!("{}.json", cleaned_time));
     if let Err(e) = serde_json::to_writer(
         BufWriter::new(File::create(id_save_path).unwrap()),
@@ -406,22 +460,22 @@ pub async fn squeue_diff<'a, 'b>(
     ) {
         eprintln!("Failed to create file for all jobs ids: {:?}", e);
     }
-    for row in &rows {
+    for row in &rows.par_iter() {
         if let Some(prev_row) = known_jobs.get_mut(&row.job_id) {
             // Job is known!
             // Compute delta
-            let diff = prev_row.diff(&row);
+            let diff = prev_row.diff(row);
             if !diff.is_empty() {
                 // Save job delta (e.g., as JSON)
                 let save_path = path
-                .join(&row.job_id)
-                .join(format!("DELTA-{}.json", cleaned_time));
-            if let Err(e) =
-            serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &diff)
-            {
-                eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
+                    .join(&row.job_id)
+                    .join(format!("DELTA-{}.json", cleaned_time));
+                if let Err(e) =
+                    serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &diff)
+                {
+                    eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
+                }
             }
-        }
             // Update prev_row in known_jobs
             *prev_row = row.clone();
         } else {
@@ -445,27 +499,21 @@ pub async fn squeue_diff<'a, 'b>(
     // Remove all known jobs which
     known_jobs.retain(|j_id, _| row_ids.contains(j_id));
     all_ids.extend(row_ids);
-    Ok((time,rows))
+    Ok((time, rows))
 }
 
 #[cfg(test)]
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
-        fs::File,
-        io::BufReader,
-        path::{Path, PathBuf},
+        path::PathBuf,
     };
 
-    use anyhow::Error;
-    use async_ssh2_tokio::AuthMethod;
-    use chrono::Duration;
-    use glob::glob;
+    use crate::get_squeue_res_locally;
+    #[cfg(feature = "ssh")]
+    use crate::{login_with_cfg, squeue_diff, ConnectionAuth, ConnectionConfig};
 
-    use crate::{
-        login_with_cfg, squeue_diff, ConnectionAuth, ConnectionConfig, JobState, SqueueRow,
-    };
-
+    #[cfg(feature = "ssh")]
     #[tokio::test]
     async fn test_squeue_loop() {
         let login_cfg = ConnectionConfig::new(
@@ -479,98 +527,26 @@ mod tests {
         let client = login_with_cfg(&login_cfg).await.unwrap();
         let mut known_jobs = HashMap::default();
         let mut all_ids = HashSet::default();
-        let path = PathBuf::new().join("test_squeue_loop");
+        let path = PathBuf::new().join("test_squeue_loop-14-01-2025");
         let mut i = 0;
         loop {
-            squeue_diff(&client, &path, &mut known_jobs, &mut all_ids)
+            squeue_diff(
+                || crate::get_squeue_res_ssh(&client),
+                &path,
+                &mut known_jobs,
+                &mut all_ids,
+            )
             .await
             .unwrap();
-        i += 1;
-        println!("Ran for {} iterations, sleeping...",i);
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            i += 1;
+            println!("Ran for {} iterations, sleeping...", i);
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
     }
+
+    #[tokio::test]
+    async fn test_local(){
+        let res = get_squeue_res_locally().await.unwrap();
+        println!("Got {} results", res.1.len())
     }
-
-    // #[test]
-    // fn test_json() -> Result<(), Error> {
-    //     let json_str = include_str!("../test_data/2024-10-12T11:24:16.744882594+00:00.json");
-    //     let data: Vec<SqueueRow> = serde_json::from_str(&json_str)?;
-    //     for d in &data {
-    //         if d.step_job_id.1.is_some() {
-    //             println!("{:?} != {:?}", d.job_id, d.step_job_id);
-    //         }
-    //     }
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_states() -> Result<(), Error> {
-    //     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-    //         .join("test_data")
-    //         .join("*.json");
-
-    //     for entry in glob(path.to_str().unwrap()).unwrap() {
-    //         match entry {
-    //             Ok(path) => {
-    //                 println!("{:?}", path);
-    //                 let buf_reader = BufReader::new(File::open(path)?);
-    //                 let data: Vec<SqueueRow> = serde_json::from_reader(buf_reader)?;
-    //                 let states: HashSet<JobState> =
-    //                     data.iter().enumerate().map(|(_i, d)| d.state.clone()).collect();
-    //                 println!("{:?}", states);
-    //             }
-    //             Err(err) => eprintln!("Err {:?}", err),
-    //         }
-    //     }
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_with_json_files() {
-    //     let json1 = include_str!("../test_data/2024-10-12T11:24:16.744882594+00:00.json");
-    //     let json2 = include_str!("../test_data/2024-10-12T11:25:44.866855169+00:00.json");
-
-    //     let data1: Vec<SqueueRow> = serde_json::from_str(&json1).unwrap();
-    //     let data2: Vec<SqueueRow> = serde_json::from_str(&json2).unwrap();
-
-    //     let job_map1: HashMap<String, SqueueRow> =
-    //         data1.into_iter().map(|d| (d.job_id.clone(), d)).collect();
-
-    //     let job_map2: HashMap<String, SqueueRow> =
-    //         data2.into_iter().map(|d| (d.job_id.clone(), d)).collect();
-
-    //     println!("|jobs1| = {}", job_map1.len());
-    //     println!("|jobs2| = {}", job_map2.len());
-
-    //     let x: HashSet<&JobState> = job_map1.iter().map(|(_, j)| &j.state).collect();
-    //     println!("States 1: {:?}", x);
-
-    //     let y: HashSet<&JobState> = job_map2.iter().map(|(_, j)| &j.state).collect();
-    //     println!("States 2: {:?}", y);
-
-    //     for (job1_id, job1) in &job_map1 {
-    //         if job1.exec_host.is_some() && job1.state != JobState::RUNNING {
-    //             println!("Not running but has exec host: {:?}", job1);
-    //         }
-    //         if job1.exec_host.is_none() && job1.state == JobState::RUNNING {
-    //             println!("Running but has no exec host: {:?}", job1);
-    //         }
-    //         if let Some(job2) = job_map2.get(job1_id) {
-    //             if job2.state != job1.state {
-    //                 println!(
-    //                     "Job {} State change: {:?} -> {:?}",
-    //                     job1.job_id, job1.state, job2.state
-    //                 );
-    //             } else {
-    //                 // println!(
-    //                 //     "Job {} State same: {} -> {}",
-    //                 //     job1.id, job1.state, job2.state
-    //                 // );
-    //             }
-    //         } else {
-    //             println!("Job {:?} not found in second set", job1);
-    //         }
-    //     }
-    //     println!("All jobs finished!");
-    // }
 }

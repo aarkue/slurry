@@ -11,6 +11,7 @@ import OCELExtractor from "./components/OCELExtractor";
 import JobsOverview from "./components/JobsOverview";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
+import clsx from "clsx";
 
 let toastID: string | undefined = undefined
 export default function App({ context }: { context: AppContextType }) {
@@ -71,7 +72,7 @@ export default function App({ context }: { context: AppContextType }) {
               </TabsList>
             </div>
 
-            <TabsContent value="overview" className="!ring-opacity-5 h-full">
+            <TabsContent value="overview" className={clsx("!ring-opacity-5 h-full","data-[state=inactive]:hidden")} forceMount>
               <JobsOverview />
             </TabsContent>
             <TabsContent value="data-collection">

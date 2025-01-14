@@ -284,7 +284,7 @@ export default function ConnectionConfigForm({ onSubmit, disabled }: { disabled?
             )}
           />
           <Label className="flex items-center mb-2">
-            <Checkbox className="mr-1" checked={saveLoginInfo} onCheckedChange={(c) => setSaveLoginInfo(c)} />
+            <Checkbox className="mr-1" checked={saveLoginInfo} onCheckedChange={(c) => setSaveLoginInfo(c === true)} />
             Save login info
           </Label>
         </div>

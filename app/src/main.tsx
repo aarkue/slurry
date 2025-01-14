@@ -23,8 +23,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       getSqueue: async () => {
         return await invoke("get_squeue");
       },
-      extractOCEL: async (data) => {
-        return await invoke("extract_ocel", { data });
+      extractOCEL: async () => {
+        return await invoke("extract_ocel");
       },
       login: async (cfg) => {
         return await invoke("login", { cfg });
