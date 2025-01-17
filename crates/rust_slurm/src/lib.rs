@@ -21,6 +21,12 @@ const SERVER_CHECK_METHOD: ServerCheckMethod = ServerCheckMethod::NoCheck;
 #[cfg(feature = "ssh")]
 pub use async_ssh2_tokio::Client;
 
+#[cfg(feature = "ssh")]
+mod port_forwarding;
+
+#[cfg(feature = "ssh")]
+pub use port_forwarding::ssh_port_forwarding;
+
 // https://slurm.schedmd.com/squeue.html
 const SQUEUE_FORMAT_STR: &str =
     "%a|%A|%B|%c|%C|%D|%e|%E|%f|%F|%G|%i|%l|%L|%j|%m|%M|%p|%P|%T|%r|%S|%V|%Z|%o";
@@ -349,11 +355,14 @@ impl From<&ConnectionAuth> for AuthMethod {
 #[cfg(feature = "ssh")]
 pub async fn login_with_cfg(cfg: &ConnectionConfig) -> Result<Client, Error> {
     let auth_method = (&cfg.auth).into();
-    let client = Client::connect(
+    let client = Client::connect_with_config(
         cfg.host.clone(),
         &cfg.username,
         auth_method,
         SERVER_CHECK_METHOD,
+        async_ssh2_tokio::Config {
+            ..Default::default()
+        },
     )
     .await?;
     Ok(client)
@@ -462,45 +471,49 @@ where
     ) {
         eprintln!("Failed to create file for all jobs ids: {:?}", e);
     }
-    *known_jobs = rows.par_iter().map(|row| {
-        if let Some(prev_row) = known_jobs.get(&row.job_id) {
-            // Job is known!
-            // Compute delta
-            let diff = prev_row.diff(row);
-            if !diff.is_empty() {
-                // Save job delta (e.g., as JSON)
-                let save_path = path
-                    .join(&row.job_id)
-                    .join(format!("DELTA-{}.json", cleaned_time));
+    *known_jobs = rows
+        .par_iter()
+        .map(|row| {
+            if let Some(prev_row) = known_jobs.get(&row.job_id) {
+                // Job is known!
+                // Compute delta
+                let diff = prev_row.diff(row);
+                if !diff.is_empty() {
+                    // Save job delta (e.g., as JSON)
+                    let save_path = path
+                        .join(&row.job_id)
+                        .join(format!("DELTA-{}.json", cleaned_time));
+                    if let Err(e) = serde_json::to_writer(
+                        BufWriter::new(File::create(save_path).unwrap()),
+                        &diff,
+                    ) {
+                        eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
+                    }
+                }
+                // Update prev_row in known_jobs
+                (row.job_id.clone(), row.clone())
+                // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
+                // *prev_row = row.clone();
+            } else {
+                // Job is new!
+                // Double check with all_ids:
+                if all_ids.contains(&row.job_id) {
+                    eprintln!("Job re-appeared! Maybe IDs get reused?");
+                }
+                let folder_path = path.join(&row.job_id);
+                create_dir_all(&folder_path).unwrap();
+                // Save job (e.g., as JSON)
+                let save_path = folder_path.join(format!("{}.json", cleaned_time));
                 if let Err(e) =
-                    serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &diff)
+                    serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &row)
                 {
                     eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
                 }
+                // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
+                (row.job_id.clone(), row.clone())
             }
-            // Update prev_row in known_jobs
-            (row.job_id.clone(), row.clone())
-            // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
-            // *prev_row = row.clone();
-        } else {
-            // Job is new!
-            // Double check with all_ids:
-            if all_ids.contains(&row.job_id) {
-                eprintln!("Job re-appeared! Maybe IDs get reused?");
-            }
-            let folder_path = path.join(&row.job_id);
-            create_dir_all(&folder_path).unwrap();
-            // Save job (e.g., as JSON)
-            let save_path = folder_path.join(format!("{}.json", cleaned_time));
-            if let Err(e) =
-                serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &row)
-            {
-                eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
-            }
-            // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
-            (row.job_id.clone(), row.clone())
-        }
-    }).collect();
+        })
+        .collect();
     // let known_jobs = rw.into_inner().unwrap();
     // Remove all known jobs which
     // known_jobs.retain(|j_id, _| row_ids.contains(j_id));
@@ -555,4 +568,5 @@ mod tests {
         let res = get_squeue_res_locally().await.unwrap();
         println!("Got {} results", res.1.len())
     }
+
 }
