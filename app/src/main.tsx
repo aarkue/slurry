@@ -37,7 +37,13 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       },
       listenSqueue: (listener) => {
         return listen<[string,SqueueRow[]]>("squeue-rows", (e) => listener(e.payload))
-      }
+      },
+      startTestJob: async () => {
+        return await invoke("start_test_job")
+      },
+      checkJobStatus: async (jobID: string) => {
+        return await invoke("check_job_status",{jobId: jobID})
+      },
     }} />
   </React.StrictMode>,
 );

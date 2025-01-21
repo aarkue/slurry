@@ -27,6 +27,9 @@ mod port_forwarding;
 #[cfg(feature = "ssh")]
 pub use port_forwarding::ssh_port_forwarding;
 
+#[cfg(feature = "ssh")]
+pub mod jobs_management;
+
 // https://slurm.schedmd.com/squeue.html
 const SQUEUE_FORMAT_STR: &str =
     "%a|%A|%B|%c|%C|%D|%e|%E|%f|%F|%G|%i|%l|%L|%j|%m|%M|%p|%P|%T|%r|%S|%V|%Z|%o";
@@ -367,16 +370,30 @@ pub async fn login_with_cfg(cfg: &ConnectionConfig) -> Result<Client, Error> {
     .await?;
     Ok(client)
 }
-use std::io::Write;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum SqueueMode {
+    #[default]
+    ALL,
+    MINE,
+    JOBIDS(Vec<String>),
+}
 pub async fn get_squeue_res<F, Fut>(
+    mode: &SqueueMode,
     execute_cmd: F,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error>
 where
     F: FnOnce(String) -> Fut,
     Fut: Future<Output = Result<String, Error>>,
 {
+    let extra_arg = match mode {
+        SqueueMode::ALL => String::default(),
+        SqueueMode::MINE => String::from("--me"),
+        SqueueMode::JOBIDS(vec) => format!("-j {}", vec.join(",")),
+    };
     let result = execute_cmd(format!(
-        "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}'"
+        "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}' {}",
+        extra_arg
     ))
     .await?;
     let res_lines = result.split("\n");
@@ -412,8 +429,8 @@ where
     Ok((time, d))
 }
 
-pub async fn get_squeue_res_locally<'a>() -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
-    get_squeue_res(|cmd_s| async move {
+pub async fn get_squeue_res_locally<'a>(mode: &SqueueMode) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
+    get_squeue_res(mode,|cmd_s| async move {
         // let splits: Vec<&str> = cmd.split(" ").collect();
         // println!("{:#?}",splits);
         // cmd.args(splits.iter().skip(1));
@@ -432,8 +449,9 @@ pub async fn get_squeue_res_locally<'a>() -> Result<(DateTime<Utc>, Vec<SqueueRo
 #[cfg(feature = "ssh")]
 pub async fn get_squeue_res_ssh<'a>(
     client: &'a Client,
+    mode: &SqueueMode
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
-    get_squeue_res(|cmd| async move {
+    get_squeue_res(mode, |cmd| async move {
         let r = client.execute(&cmd).await?;
         Ok(r.stdout)
     })
@@ -528,7 +546,7 @@ mod tests {
         path::PathBuf,
     };
 
-    use crate::get_squeue_res_locally;
+    use crate::{get_squeue_res_locally, SqueueMode};
     #[cfg(feature = "ssh")]
     use crate::{login_with_cfg, squeue_diff, ConnectionAuth, ConnectionConfig};
 
@@ -550,7 +568,7 @@ mod tests {
         let mut i = 0;
         loop {
             squeue_diff(
-                || crate::get_squeue_res_ssh(&client),
+                || crate::get_squeue_res_ssh(&client,&SqueueMode::ALL),
                 &path,
                 &mut known_jobs,
                 &mut all_ids,
@@ -565,8 +583,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local() {
-        let res = get_squeue_res_locally().await.unwrap();
+        let res = get_squeue_res_locally(&SqueueMode::ALL).await.unwrap();
         println!("Got {} results", res.1.len())
     }
-
 }

@@ -16,15 +16,9 @@ import { Input } from "./ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "./ui/input-otp";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Checkbox } from "./ui/checkbox";
-import { Check } from "lucide-react";
 import { Label } from "./ui/label";
 const SAVED_AUTH_LOCAL_STORAGE_KEY = "saved-auth";
 export default function ConnectionConfigForm({ onSubmit, disabled }: { disabled?: boolean, onSubmit: (config: z.infer<typeof connectionFormSchema>) => any }) {
-  // const { runSqueue: testSqueue } = useContext(AppContext);
-  // const [isLoading, setIsLoading] = useState(false);
-  // const [isPollingWith, setIsPollingWith] = useState<
-  //   z.infer<typeof connectionFormSchema> | undefined
-  // >(undefined);
   const [saveLoginInfo, setSaveLoginInfo] = useState(false);
   const form = useForm<z.infer<typeof connectionFormSchema>>({
     resolver: zodResolver(connectionFormSchema),
@@ -64,47 +58,9 @@ export default function ConnectionConfigForm({ onSubmit, disabled }: { disabled?
       } finally {
         onSubmit(values);
       }
-      // setIsLoading(true);
-      // toast
-      //   .promise(testSqueue(values), {
-      //     loading: "Loading...",
-      //     error: (e) => (
-      //       <div>
-      //         Failed!
-      //         <br />
-      //         {e.toString()}
-      //       </div>
-      //     ),
-      //     success: (s) => (
-      //       <div>
-      //         Success!
-      //         <br />
-      //         {s}
-      //       </div>
-      //     ),
-      //   })
-      //   .finally(() => {
-      //     setIsLoading(false);
-      //   });
     },
     [],
   );
-
-  // useEffect(() => {
-  //   console.log(isPollingWith);
-  //   let interval: NodeJS.Timeout | undefined;
-  //   if (isPollingWith !== undefined) {
-  //     onSubmit(isPollingWith);
-  //     interval = setInterval(() => {
-  //       onSubmit(isPollingWith);
-  //     }, 1000 * 5);
-  //   }
-  //   return () => {
-  //     if (interval != undefined) {
-  //       clearInterval(interval);
-  //     }
-  //   };
-  // }, [isPollingWith, form]);
 
   return (
     <Form {...form}>
@@ -294,24 +250,6 @@ export default function ConnectionConfigForm({ onSubmit, disabled }: { disabled?
         >
           Submit
         </Button>
-        {/* <Button
-          className="ml-2"
-          variant={isPollingWith !== undefined ? "destructive" : "secondary"}
-          onClick={(ev) => {
-            if (isPollingWith == undefined) {
-              form.handleSubmit(
-                (d) => setIsPollingWith(d),
-                (e) => console.error(e),
-              )(ev);
-            } else {
-              setIsPollingWith(undefined);
-            }
-            ev.preventDefault();
-            ev.stopPropagation();
-          }}
-        >
-          {isPollingWith ? "End" : "Start"} Polling
-        </Button> */}
       </form>
     </Form>
   );

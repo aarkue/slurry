@@ -20,19 +20,16 @@ use process_mining::{
     OCEL,
 };
 use rust_slurm::{
-    self, get_squeue_res_ssh, login_with_cfg, squeue_diff, Client, ConnectionConfig, JobState, SqueueRow
+    self, get_squeue_res_ssh, jobs_management::{get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus}, login_with_cfg, squeue_diff, Client, ConnectionConfig, JobState, SqueueMode, SqueueRow
 };
 use serde::Serialize;
 use structdiff::StructDiff;
-use tauri::{
-    async_runtime::RwLock,
-    State,
-};
+use tauri::{async_runtime::RwLock, State};
 
 #[tauri::command]
 async fn run_squeue<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<String, CmdError> {
     if let Some(client) = &state.read().await.client {
-        let (time, jobs) = get_squeue_res_ssh(client).await?;
+        let (time, jobs) = get_squeue_res_ssh(client, &SqueueMode::ALL).await?;
         serde_json::to_writer_pretty(
             BufWriter::new(
                 File::create(format!("{}.json", time.to_rfc3339().replace(":", "_"))).unwrap(),
@@ -85,9 +82,13 @@ async fn start_squeue_loop<'a>(
                 let l = state.read().await;
                 if let Some(client) = &l.client {
                     let res = squeue_diff(
-                        || get_squeue_res_ssh(client), &path, &mut known_jobs, &mut all_ids)
-                        .await
-                        .unwrap();
+                        || get_squeue_res_ssh(client,&SqueueMode::ALL),
+                        &path,
+                        &mut known_jobs,
+                        &mut all_ids,
+                    )
+                    .await
+                    .unwrap();
                     app.emit("squeue-rows", &res).unwrap();
                     i += 1;
                     drop(l);
@@ -141,7 +142,7 @@ async fn get_squeue<'a>(
     state: State<'a, Arc<RwLock<AppState>>>,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), CmdError> {
     if let Some(client) = &state.read().await.client {
-        let (time, jobs) = get_squeue_res_ssh(client).await?;
+        let (time, jobs) = get_squeue_res_ssh(client,&SqueueMode::ALL).await?;
         Ok((time, jobs))
     } else {
         Err(Error::msg("No logged-in client available.").into())
@@ -581,11 +582,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                 &row.min_memory,
                                 DateTime::UNIX_EPOCH,
                             ),
-                            OCELObjectAttribute::new(
-                                "state",
-                                format!("{:?}", &row.state),
-                                dt,
-                            ),
+                            OCELObjectAttribute::new("state", format!("{:?}", &row.state), dt),
                         ],
                         relationships: vec![
                             OCELRelationship::new(format!("acc_{}", &row.account), "submitted by"),
@@ -817,6 +814,57 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
     Err(Error::msg("No source or destination selected.").into())
 }
 
+#[tauri::command]
+async fn start_test_job<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<String, CmdError> {
+    let mut x = state.write().await;
+    if let Some(client) = x.client.take() {
+        let arc = Arc::new(client);
+        let res = submit_job(
+            arc.clone(),
+            JobOptions {
+                root_dir: "hpc_experiments".to_string(),
+                num_cpus: 12,
+                time: "0-00:01:00".to_string(),
+                local_forwarding: Some(JobLocalForwarding { local_port: 3000, relay_port: 3000, relay_addr: "login23-1".to_string() }),
+                command: "./ocpq-server".to_string(),
+                files_to_upload: vec![
+                    JobFilesToUpload {
+                    local_path: PathBuf::from("/home/aarkue/doc/projects/OCPQ/backend/target/x86_64-unknown-linux-gnu/release/ocedeclare-web-server"),
+                    remote_subpath: "".to_string(),
+                    remote_file_name: "ocpq-server".to_string(),
+                },
+            //     JobFilesToUpload {
+            //     local_path: PathBuf::from("/home/aarkue/dow/ocel/bpic2017-o2o-workflow-qualifier.json"),
+            //     remote_subpath: "../data".to_string(),
+            //     remote_file_name: "bpic2017-o2o-workflow-qualifier.json".to_string(),
+            // }
+                ].into_iter().collect(),
+            },
+        )
+        .await;
+        // Get our client back
+        x.client = Some(Arc::into_inner(arc).unwrap());
+        return match res {
+            Ok((folder_id, job_id)) => Ok(job_id),
+            Err(e) => Err(e.into()),
+        };
+    }
+    Err(Error::msg("Did not do it :(").into())
+}
+
+
+
+#[tauri::command]
+async fn check_job_status<'a>(state: State<'a, Arc<RwLock<AppState>>>, job_id: String) -> Result<JobStatus, CmdError> {
+    match &state.read().await.client {
+    Some(client) => {
+        let status = get_job_status(client, &job_id).await?;
+        Ok(status)
+    },
+    None => Err(Error::msg("No client available.").into()),
+    }
+   
+}
 pub fn extract_timestamp(s: &str) -> DateTime<Utc> {
     // 2025-01-04T00-55-04.789009695+00-00
     // let (date, time) = s.split_once("T").unwrap();
@@ -861,7 +909,9 @@ pub fn run() {
             login,
             logout,
             is_logged_in,
-            get_squeue
+            get_squeue,
+            start_test_job,
+            check_job_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

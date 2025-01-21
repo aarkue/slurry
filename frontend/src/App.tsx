@@ -69,10 +69,13 @@ export default function App({ context }: { context: AppContextType }) {
                 <TabsTrigger value="ocel-extraction" className="font-semibold">
                   OCEL Extraction
                 </TabsTrigger>
+                <TabsTrigger value="job-creation" className="font-semibold">
+                  Job Creation
+                </TabsTrigger>
               </TabsList>
             </div>
 
-            <TabsContent value="overview" className={clsx("!ring-opacity-5 h-full","data-[state=inactive]:hidden")} forceMount>
+            <TabsContent value="overview" className={clsx("!ring-opacity-5 h-full", "data-[state=inactive]:hidden")} forceMount>
               <JobsOverview />
             </TabsContent>
             <TabsContent value="data-collection">
@@ -82,12 +85,71 @@ export default function App({ context }: { context: AppContextType }) {
             <TabsContent value="ocel-extraction">
               <OCELExtractor />
             </TabsContent>
+
+            <TabsContent value="job-creation">
+              <JobSubmission />
+            </TabsContent>
           </Tabs>
         </div>}
 
       </main>
     </AppContext.Provider>
   );
+}
+
+function JobSubmission() {
+  const [jobID, setJobID] = useState<string>();
+  const [jobState, setJobState] = useState<{ status: "PENDING", start_time: String | undefined } | { status: "RUNNING", start_time: String | undefined, end_time: String | undefined } | { status: "ENDED", state: string } | { status: "NOT_FOUND" }>();
+  const context = useContext(AppContext);
+
+  useEffect(() => {
+    if (jobID) {
+      const t = setInterval(() => {
+        // toast.promise(
+        // )
+        // , { loading: "Loading job status...", success: "Got job status", error: (e) => "Failed to get job status: " + e }
+        context.checkJobStatus(jobID)
+        .then((r) => setJobState(r))
+      }, 3 * 1000);
+      return () => {
+        clearTimeout(t);
+      }
+    }
+  }, [jobID])
+  return <div className="flex flex-col gap-1 justify-center items-center">
+    <Button disabled={jobID !== undefined} onClick={() => {
+      toast.promise(context.startTestJob(), { loading: "Starting job...", success: (s) => "Started job: " + s, error: (e) => "Failed to start job: " + e }).then((j) => {
+        setJobID(j);
+      })
+    }}>
+      Create example job
+    </Button>
+    {jobID !== undefined && <p>
+      Created job with ID {jobID}
+    </p>}
+   {jobState !== undefined && <div  className={clsx("block w-fit mx-auto p-2 rounded",{"PENDING": "bg-gray-300/20", "RUNNING": "bg-green-400/20", "ENDED": "bg-fuchsia-400/20", "NOT_FOUND": "bg-gray-100/20"}[jobState.status])}>
+    <div className={clsx("block w-fit mx-auto p-2 rounded font-extrabold text-xl ",{"PENDING": "text-gray-500", "RUNNING": "text-green-500", "ENDED": "text-fuchsia-500", "NOT_FOUND": "text-gray-500"}[jobState.status])}>
+      {jobState.status}
+    </div>
+    <div className="grid grid-cols-[auto,1fr] gap-x-1">
+      {jobState.status === "RUNNING" && <>
+        <span>Start:</span> <span>{jobState.start_time}</span>
+        <span>End:</span> <span>{jobState.end_time}</span>
+        </>}
+        {jobState.status === "PENDING" && <>
+        <span>Start:</span> <span>{jobState.start_time}</span>
+        </>}
+
+        {jobState.status === "ENDED" && <>
+        <span>State:</span> <span>{jobState.state}</span>
+        </>}
+      
+      </div>
+    </div>}
+    {jobID !== undefined && <Button onClick={() => { setJobID(undefined); setJobState(undefined) }} variant="destructive">
+      Reset
+    </Button>}
+  </div>
 }
 
 
@@ -106,6 +168,7 @@ function DataCollection() {
   useEffect(() => {
     updateLoopInfo()
   })
+
   return <div>
     <Button className="mx-auto block" disabled={loading} variant={"outline"} onClick={() => {
       setLoading(true);
@@ -136,10 +199,10 @@ function DataCollection() {
           <span className="size-4 rounded-full bg-red-400 animate-pulse duration-1000 inline-block -mb-0.5 mr-1" />
 
           <span className="font-semibold text-lg">Recording</span><br />
-          <span className="text-xs relative">to <Folder className="inline-block size-3 absolute top-1/2 -translate-y-1/2 ml-0.5 text-cyan-600"/> <input onClick={(ev) => {
+          <span className="text-xs relative">to <Folder className="inline-block size-3 absolute top-1/2 -translate-y-1/2 ml-0.5 text-cyan-600" /> <input onClick={(ev) => {
             ev.currentTarget.select();
-          }} value={loopInfo.path} className="border p-0.5 rounded pl-4 bg-cyan-50 border-cyan-200 text-xs" readOnly/></span><br/>
-          <span className="text-xs">since {new Date(loopInfo.runningSince).toLocaleString()}</span><br/>
+          }} value={loopInfo.path} className="border p-0.5 rounded pl-4 bg-cyan-50 border-cyan-200 text-xs" readOnly /></span><br />
+          <span className="text-xs">since {new Date(loopInfo.runningSince).toLocaleString()}</span><br />
           <span className="text-xs">with {loopInfo.secondInterval}s breaks.</span>
         </p>
         <Button variant="destructive" className="mx-auto block" disabled={loading || loopInfo === undefined} onClick={() => {

@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet}, path::PathBuf};
 
 use clap::Parser;
-use rust_slurm::{ get_squeue_res_locally, squeue_diff};
+use rust_slurm::{ get_squeue_res_locally, squeue_diff, SqueueMode};
 
 /// Run squeue loop and save delta data
 #[derive(Parser, Debug)]
@@ -24,7 +24,7 @@ async fn main() {
     let mut i = 0;
     loop {
         squeue_diff(
-            || get_squeue_res_locally(),
+            || get_squeue_res_locally(&SqueueMode::ALL),
             &args.path,
             &mut known_jobs,
             &mut all_ids,

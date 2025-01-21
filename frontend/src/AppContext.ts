@@ -44,6 +44,8 @@ export type AppContextType = {
   isLoggedIn: () => Promise<boolean>,
   // Return unlisten function (to de-register)
   listenSqueue: (a: (timeAndRows: [string,SqueueRow[]]) => unknown) => Promise<() => unknown>,
+  startTestJob: () => Promise<string>,
+  checkJobStatus: (jobID: string) => Promise<{status: "PENDING", start_time: String|undefined} |{status: "RUNNING", start_time: String|undefined, end_time: String|undefined} | {status: "ENDED", state: string}  | {status: "NOT_FOUND"}>,
 };
 
 const throwNoContext = () => {
@@ -59,6 +61,8 @@ export const DEFAULT_NO_CONTEXT: AppContextType = {
   login: throwNoContext,
   logout: throwNoContext,
   isLoggedIn: throwNoContext,
-  listenSqueue: throwNoContext
+  listenSqueue: throwNoContext,
+  startTestJob: throwNoContext,
+  checkJobStatus: throwNoContext
 };
 export const AppContext = createContext<AppContextType>(DEFAULT_NO_CONTEXT);

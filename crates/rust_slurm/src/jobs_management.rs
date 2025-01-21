@@ -100,8 +100,8 @@ pub async fn submit_job(
     let forwaring_str = match job_options.local_forwarding {
         Some(forwarding_options) => format!(
             "ssh -N -f -R {}:localhost:{} {}",
-            forwarding_options.local_port,
             forwarding_options.relay_port,
+            forwarding_options.local_port,
             forwarding_options.relay_addr
         ),
         None => String::default(),
