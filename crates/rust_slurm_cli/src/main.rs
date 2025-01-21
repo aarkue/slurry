@@ -1,7 +1,10 @@
-use std::{collections::{HashMap, HashSet}, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use clap::Parser;
-use rust_slurm::{ get_squeue_res_locally, squeue_diff, SqueueMode};
+use rust_slurm::{get_squeue_res_locally, squeue_diff, SqueueMode};
 
 /// Run squeue loop and save delta data
 #[derive(Parser, Debug)]

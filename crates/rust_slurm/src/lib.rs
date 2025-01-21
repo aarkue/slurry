@@ -429,13 +429,15 @@ where
     Ok((time, d))
 }
 
-pub async fn get_squeue_res_locally<'a>(mode: &SqueueMode) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
-    get_squeue_res(mode,|cmd_s| async move {
+pub async fn get_squeue_res_locally<'a>(
+    mode: &SqueueMode,
+) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
+    get_squeue_res(mode, |cmd_s| async move {
         // let splits: Vec<&str> = cmd.split(" ").collect();
         // println!("{:#?}",splits);
         // cmd.args(splits.iter().skip(1));
         let mut cmd = Command::new("sh");
-        cmd.arg("-c").arg(format!("{cmd_s}"));
+        cmd.arg("-c").arg(&cmd_s);
         let d = Instant::now();
         let out = cmd.output()?;
         let s = String::from_utf8(out.stdout)?;
@@ -449,7 +451,7 @@ pub async fn get_squeue_res_locally<'a>(mode: &SqueueMode) -> Result<(DateTime<U
 #[cfg(feature = "ssh")]
 pub async fn get_squeue_res_ssh<'a>(
     client: &'a Client,
-    mode: &SqueueMode
+    mode: &SqueueMode,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
     get_squeue_res(mode, |cmd| async move {
         let r = client.execute(&cmd).await?;
@@ -568,7 +570,7 @@ mod tests {
         let mut i = 0;
         loop {
             squeue_diff(
-                || crate::get_squeue_res_ssh(&client,&SqueueMode::ALL),
+                || crate::get_squeue_res_ssh(&client, &SqueueMode::ALL),
                 &path,
                 &mut known_jobs,
                 &mut all_ids,

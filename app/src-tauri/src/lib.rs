@@ -20,7 +20,11 @@ use process_mining::{
     OCEL,
 };
 use rust_slurm::{
-    self, get_squeue_res_ssh, jobs_management::{get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus}, login_with_cfg, squeue_diff, Client, ConnectionConfig, JobState, SqueueMode, SqueueRow
+    self, get_squeue_res_ssh,
+    jobs_management::{
+        get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus,
+    },
+    login_with_cfg, squeue_diff, Client, ConnectionConfig, JobState, SqueueMode, SqueueRow,
 };
 use serde::Serialize;
 use structdiff::StructDiff;
@@ -82,7 +86,7 @@ async fn start_squeue_loop<'a>(
                 let l = state.read().await;
                 if let Some(client) = &l.client {
                     let res = squeue_diff(
-                        || get_squeue_res_ssh(client,&SqueueMode::ALL),
+                        || get_squeue_res_ssh(client, &SqueueMode::ALL),
                         &path,
                         &mut known_jobs,
                         &mut all_ids,
@@ -142,7 +146,7 @@ async fn get_squeue<'a>(
     state: State<'a, Arc<RwLock<AppState>>>,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), CmdError> {
     if let Some(client) = &state.read().await.client {
-        let (time, jobs) = get_squeue_res_ssh(client,&SqueueMode::ALL).await?;
+        let (time, jobs) = get_squeue_res_ssh(client, &SqueueMode::ALL).await?;
         Ok((time, jobs))
     } else {
         Err(Error::msg("No logged-in client available.").into())
@@ -852,18 +856,18 @@ async fn start_test_job<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<S
     Err(Error::msg("Did not do it :(").into())
 }
 
-
-
 #[tauri::command]
-async fn check_job_status<'a>(state: State<'a, Arc<RwLock<AppState>>>, job_id: String) -> Result<JobStatus, CmdError> {
+async fn check_job_status<'a>(
+    state: State<'a, Arc<RwLock<AppState>>>,
+    job_id: String,
+) -> Result<JobStatus, CmdError> {
     match &state.read().await.client {
-    Some(client) => {
-        let status = get_job_status(client, &job_id).await?;
-        Ok(status)
-    },
-    None => Err(Error::msg("No client available.").into()),
+        Some(client) => {
+            let status = get_job_status(client, &job_id).await?;
+            Ok(status)
+        }
+        None => Err(Error::msg("No client available.").into()),
     }
-   
 }
 pub fn extract_timestamp(s: &str) -> DateTime<Utc> {
     // 2025-01-04T00-55-04.789009695+00-00

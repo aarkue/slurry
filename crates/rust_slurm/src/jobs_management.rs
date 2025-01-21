@@ -1,15 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::SystemTime,
-};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::SystemTime};
 
 use anyhow::{Error, Ok};
 use async_ssh2_tokio::Client;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::{join, sync::futures, task::JoinSet};
+use tokio::task::JoinSet;
 
 use crate::{get_squeue_res_ssh, JobState};
 
@@ -71,10 +66,12 @@ pub async fn submit_job(
                         root_dir, folder_id, file_to_upload.remote_subpath
                     ))
                     .await
-                    .expect(&format!(
-                        "Could not create directory for file {}",
-                        file_to_upload.remote_subpath
-                    ));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Could not create directory for file {}",
+                            file_to_upload.remote_subpath
+                        )
+                    });
                 client_arc
                     .upload_file(
                         &file_to_upload.local_path,
@@ -137,9 +134,9 @@ pub async fn submit_job(
         .await?;
     let job_id = sbatch_out.stdout.split(" ").last();
     if let Some(job_id) = job_id {
-        return Ok((folder_id.clone(), job_id.to_string()));
+        Ok((folder_id.clone(), job_id.to_string()))
     } else {
-        return Err(Error::msg("No JOB ID returned by sbatch."));
+        Err(Error::msg("No JOB ID returned by sbatch."))
     }
 }
 
