@@ -1,20 +1,8 @@
-import clsx from "clsx";
-import { CalendarIcon, XIcon } from "lucide-react";
-import { useContext, useState } from "react";
-import DropZone from "./DropZone";
-import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import toast from "react-hot-toast";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import { AppContext } from "@/AppContext";
-type FileWithInfo = { file: File; timestamp: string | null };
+import { useContext } from "react";
+import toast from "react-hot-toast";
+import { Button } from "./ui/button";
+// type FileWithInfo = { file: File; timestamp: string | null };
 
 export default function OCELExtractor() {
   // const [files, setFiles] = useState<FileWithInfo[]>([]);
@@ -22,7 +10,7 @@ export default function OCELExtractor() {
   //   info: FileWithInfo;
   //   index: number;
   // }>();
-  const [loading, setLoading] = useState(false);
+  // const [loading, setLoading] = useState(false);
   const backend = useContext(AppContext);
   return (
     <div className="text-center">

@@ -1,17 +1,17 @@
 import "@/globals.css";
+import clsx from "clsx";
+import { Folder, LogOut } from "lucide-react";
 import { useCallback, useContext, useEffect, useState } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import { AppContext, AppContextType } from "./AppContext";
 import ConnectionConfigForm from "./components/ConnectionConfigForm";
+import JobsOverview from "./components/JobsOverview";
+import OCELExtractor from "./components/OCELExtractor";
 import Spinner from "./components/ui/Spinner";
 import { Button } from "./components/ui/button";
-import { Circle, Dot, Folder, LogOut } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
-import OCELExtractor from "./components/OCELExtractor";
-import JobsOverview from "./components/JobsOverview";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
-import clsx from "clsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 
 let toastID: string | undefined = undefined
 export default function App({ context }: { context: AppContextType }) {
