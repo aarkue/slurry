@@ -12,7 +12,7 @@ serde_json = "1"
 glob = "0.3.1"
 structdiff = {version = "0.7.1", features = ["serde","debug_diffs"]}
 tokio = {version = "1.43", features = ["full"], optional = true}
-async-ssh2-tokio = { version = "0.8.12" , optional = true}
+async-ssh2-tokio = { version = "=0.8.12" , optional = true}
 rayon = "1.10"
 
 
