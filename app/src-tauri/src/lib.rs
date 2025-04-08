@@ -673,7 +673,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
 
                         if row.state != JobState::PENDING {
                             if let Some(st) = &row.start_time {
-                                let e = OCELEvent::new(
+                                let mut e = OCELEvent::new(
                                     format!("start-{}-{}", o.id, events.len()),
                                     "Job Started",
                                     st.and_local_timezone(FixedOffset::east_opt(1 * 3600).unwrap())
@@ -681,8 +681,15 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                         .unwrap()
                                         .to_utc(),
                                     Vec::new(),
-                                    vec![OCELRelationship::new(&o.id, "job")],
+                                    vec![OCELRelationship::new(&o.id, "job"),
+                                    OCELRelationship::new(&format!("group_{}",&row.group), "for"),
+                                    ],
                                 );
+                                
+                                if let Some(h) = row.exec_host.as_ref() {
+                                    execution_hosts.write().unwrap().insert(h.clone());
+                                    e.relationships.push(OCELRelationship::new(&format!("host_{}",row.exec_host.as_ref().unwrap().clone()), "host"));
+                                }
                                 start_ev = Some(e);
                             }
                         }
