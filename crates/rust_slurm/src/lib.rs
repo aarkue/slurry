@@ -412,7 +412,7 @@ where
 
     let time: DateTime<Utc> = SystemTime::now().into();
     let d: Vec<SqueueRow> = res_lines
-        .filter_map(move |line| {
+        .filter_map(|line| {
             if line.is_empty() {
                 return None;
             }
