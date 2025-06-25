@@ -634,7 +634,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                             ],
                             relationships: vec![
                                 OCELRelationship::new(
-                                    format!("acc_{}", &row.account),
+                                    format!("acc_{}", &account),
                                     "submitted by",
                                 ),
                                 OCELRelationship::new(
