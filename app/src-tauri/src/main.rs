@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    vashpc_lib::run()
+    slurry_app_lib::run()
 }

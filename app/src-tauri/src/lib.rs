@@ -10,7 +10,7 @@ use process_mining::{
     OCEL,
 };
 use rayon::prelude::*;
-use rust_slurm::{
+use slurry::{
     self, get_squeue_res_ssh,
     jobs_management::{
         get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus,
@@ -773,40 +773,40 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                         );
                                         let mut ignore = false;
                                         match s {
-                                            rust_slurm::JobState::RUNNING => {
+                                            slurry::JobState::RUNNING => {
                                                 e.id = format!("{}_{}", "start-", e.id);
                                                 e.event_type = "Job Started".to_string();
                                                 ignore = true;
                                             }
-                                            rust_slurm::JobState::COMPLETING => {
+                                            slurry::JobState::COMPLETING => {
                                                 e.id = format!("{}_{}", "ending-", e.id);
                                                 e.event_type = "Job Ending".to_string()
                                             }
-                                            rust_slurm::JobState::COMPLETED => {
+                                            slurry::JobState::COMPLETED => {
                                                 e.id = format!("{}_{}", "ended-", e.id);
                                                 e.event_type = "Job Completed".to_string()
                                             }
-                                            rust_slurm::JobState::CANCELLED => {
+                                            slurry::JobState::CANCELLED => {
                                                 e.id = format!("{}_{}", "cancelled-", e.id);
                                                 e.event_type = "Job Cancelled".to_string()
                                             }
-                                            rust_slurm::JobState::FAILED => {
+                                            slurry::JobState::FAILED => {
                                                 e.id = format!("{}_{}", "failed-", e.id);
                                                 e.event_type = "Job Failed".to_string()
                                             }
-                                            rust_slurm::JobState::TIMEOUT => {
+                                            slurry::JobState::TIMEOUT => {
                                                 e.id = format!("{}_{}", "timeout-", e.id);
                                                 e.event_type = "Job Timeout".to_string()
                                             }
-                                            rust_slurm::JobState::OUT_OF_MEMORY => {
+                                            slurry::JobState::OUT_OF_MEMORY => {
                                                 e.id = format!("{}_{}", "oom-", e.id);
                                                 e.event_type = "Job Out Of Memory".to_string()
                                             }
-                                            rust_slurm::JobState::NODE_FAIL => {
+                                            slurry::JobState::NODE_FAIL => {
                                                 e.id = format!("{}_{}", "node-fail-", e.id);
                                                 e.event_type = "Job Node Fail".to_string()
                                             }
-                                            rust_slurm::JobState::PENDING => {
+                                            slurry::JobState::PENDING => {
                                                 // Status change TO pending?
                                                 // Hmm..
                                                 //             eprintln!(
@@ -815,7 +815,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                                 // );
                                                 ignore = true;
                                             }
-                                            rust_slurm::JobState::OTHER(other) => {
+                                            slurry::JobState::OTHER(other) => {
                                                 // eprintln!(
                                                 //     "Unexpected job state change to other: {}",
                                                 //     other
