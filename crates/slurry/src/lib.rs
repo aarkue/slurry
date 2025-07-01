@@ -258,8 +258,11 @@ impl JobState {
     }
 }
 
+
+
 #[cfg(feature = "ssh")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// A connection config for logging in using SSH
 pub struct ConnectionConfig {
     pub host: (String, u16),
     pub username: String,
@@ -378,6 +381,7 @@ pub enum SqueueMode {
     MINE,
     JOBIDS(Vec<String>),
 }
+/// Get squeue results using the provided `execute_cmd` function
 pub async fn get_squeue_res<F, Fut>(
     mode: &SqueueMode,
     execute_cmd: F,
