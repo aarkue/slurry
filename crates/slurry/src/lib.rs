@@ -1,18 +1,17 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs::{create_dir_all, File},
-    future::Future,
-    io::BufWriter,
-    path::{Path, PathBuf},
-    process::Command,
-    time::{Duration, Instant, SystemTime},
-};
+#![warn(
+    clippy::doc_markdown,
+    missing_debug_implementations,
+    rust_2018_idioms,
+    rust_2024_compatibility,
+    missing_docs
+)]
+#![doc = include_str!("../README.md")]
+
+
+use std::time::Duration;
 
 use anyhow::Error;
-use chrono::{DateTime, NaiveDateTime, Utc};
-use rayon::iter::IntoParallelRefIterator;
 use serde::{Deserialize, Serialize};
-use structdiff::{Difference, StructDiff};
 
 #[cfg(feature = "ssh")]
 use async_ssh2_tokio::client::{AuthKeyboardInteractive, AuthMethod, ServerCheckMethod};
@@ -28,95 +27,12 @@ mod port_forwarding;
 pub use port_forwarding::ssh_port_forwarding;
 
 #[cfg(feature = "ssh")]
+/// Module for managing (e.g., creating or cancelling) SLURM jobs
 pub mod jobs_management;
 
-// https://slurm.schedmd.com/squeue.html
-const SQUEUE_FORMAT_STR: &str =
-    "%a|%A|%B|%c|%C|%D|%e|%E|%f|%F|%G|%i|%l|%L|%j|%m|%M|%p|%P|%T|%r|%S|%V|%Z|%o";
-// const SQUEUE_EXPECTED_COLS: &[&str] = &[
-//     "ACCOUNT",
-//     "JOBID",
-//     "EXEC_HOST",
-//     "MIN_CPUS",
-//     "CPUS",
-//     "NODES",
-//     "END_TIME",
-//     "DEPENDENCY",
-//     "FEATURES",
-//     "ARRAY_JOB_ID",
-//     "GROUP",
-//     "STEPJOBID",
-//     "TIME_LIMIT",
-//     "TIME_LEFT",
-//     "NAME",
-//     "MIN_MEMORY",
-//     "TIME",
-//     "PRIORITY",
-//     "PARTITION",
-//     "STATE",
-//     "REASON",
-//     "START_TIME",
-//     "SUBMIT_TIME",
-//     "WORK_DIR",
-//     "COMMAND",
-// ];
-
-#[derive(Debug, Clone, Serialize, Deserialize, Difference)]
-pub struct SqueueRow {
-    // "ACCOUNT",
-    pub account: String,
-    // "JOBID",
-    pub job_id: String,
-    // "EXEC_HOST",
-    pub exec_host: Option<String>,
-    // "MIN_CPUS",
-    pub min_cpus: usize,
-    // "CPUS",
-    pub cpus: usize,
-    // "NODES",
-    pub nodes: usize,
-    // "END_TIME",
-    pub end_time: Option<NaiveDateTime>,
-    // "DEPENDENCY",
-    pub dependency: Option<String>,
-    // "FEATURES",
-    pub features: String,
-    // "ARRAY_JOB_ID",
-    pub array_job_id: String,
-    // "GROUP",
-    pub group: String,
-    // "STEPJOBID",
-    // 49848561 or 49869434_2 or 49616001_[3-10%1]
-    pub step_job_id: (String, Option<String>),
-    // "TIME_LIMIT",
-    pub time_limit: Option<Duration>,
-    // "TIME_LEFT",
-    #[difference(skip)]
-    pub time_left: Option<Duration>,
-    // "NAME",
-    pub name: String,
-    // "MIN_MEMORY",
-    pub min_memory: String,
-    // "TIME",
-    #[difference(skip)]
-    pub time: Option<Duration>,
-    // "PRIORITY",
-    pub priority: f64,
-    // "PARTITION",
-    pub partition: String,
-    // "STATE",
-    pub state: JobState,
-    // "REASON",
-    pub reason: String,
-    // "START_TIME",
-    pub start_time: Option<NaiveDateTime>,
-    // "SUBMIT_TIME",
-    pub submit_time: NaiveDateTime,
-    // "WORK_DIR",
-    pub work_dir: PathBuf,
-    // "COMMAND",
-    pub command: String,
-}
+/// Module for extracting data from SLURM systems
+/// e.g., about currently running jobs
+pub mod data_extraction;
 
 // days-hours:minutes:seconds
 fn parse_slurm_duration(s: &str) -> Result<Duration, Error> {
@@ -160,85 +76,37 @@ fn parse_slurm_duration(s: &str) -> Result<Duration, Error> {
     Ok(dur)
 }
 
-impl SqueueRow {
-    pub fn parse_from_strs(vals: &[&str]) -> Result<Self, Error> {
-        if vals.len() != 25 {
-            return Err(Error::msg("Invalid length of values."));
-        }
-        let mut step_job_id = vals[11].split("_");
-        Ok(Self {
-            account: vals[0].to_string(),
-            job_id: vals[1].to_string(),
-            exec_host: match vals[2] {
-                "n/a" => None,
-                s => Some(s.to_string()),
-            },
-            min_cpus: vals[3].parse()?,
-            cpus: vals[4].parse()?,
-            nodes: vals[5].parse()?,
-            end_time: match vals[6] {
-                "N/A" => None,
-                s => Some(NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")?),
-            },
-            dependency: match vals[7] {
-                "(null)" => None,
-                s => Some(s.to_string()),
-            },
-            features: vals[8].to_string(),
-            array_job_id: vals[9].to_string(),
-            group: vals[10].to_string(),
-            step_job_id: (
-                step_job_id.next().unwrap().to_string(),
-                step_job_id.next().map(|s| s.to_string()),
-            ), // todo!(), // 11
-            time_limit: match vals[12] {
-                "INVALID" => None,
-                s => parse_slurm_duration(s).map(Some).unwrap_or_default(),
-            }, // 12
-            time_left: match vals[13] {
-                "INVALID" => None,
-                s => parse_slurm_duration(s).map(Some).unwrap_or_default(),
-            }, // 13
-            name: vals[14].to_string(),       // 14
-            min_memory: vals[15].to_string(), // 15
-            time: match vals[16] {
-                "INVALID" => None,
-                s => parse_slurm_duration(s).map(Some).unwrap_or_default(),
-            },
-            priority: vals[17]
-                .parse()
-                .inspect_err(|err| eprintln!("Priority failed to parse! {err:?}"))?, // 17
-            partition: vals[18].to_string(),
-            state: JobState::from_str(vals[19])?,
-            reason: vals[20].to_string(),
-            start_time: match vals[21] {
-                "N/A" => None,
-                s => Some(NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")?),
-            },
-            submit_time: NaiveDateTime::parse_from_str(vals[22], "%Y-%m-%dT%H:%M:%S")?,
-            work_dir: vals[23].parse()?,
-            command: vals[24].to_string(),
-        })
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+/// State of a SLURM job (according to `squeue`)
+/// 
+/// Documentation taken from https://slurm.schedmd.com/squeue.html#SECTION_JOB-STATE-CODES.
 pub enum JobState {
+    /// Job currently has an allocation. 
     RUNNING,
+    /// Job is awaiting resource allocation. 
     PENDING,
+    /// Job is in the process of completing. Some processes on some nodes may still be active. 
     COMPLETING,
+    /// Job has terminated all processes on all nodes with an exit code of zero. 
     COMPLETED,
+    /// Job was explicitly cancelled by the user or system administrator. The job may or may not have been initiated. 
     CANCELLED,
+    /// Job terminated with non-zero exit code or other failure condition. 
     FAILED,
+    /// Job terminated upon reaching its time limit. 
     TIMEOUT,
+    /// Job experienced out of memory error. 
     #[allow(non_camel_case_types)]
     OUT_OF_MEMORY,
+    /// Job terminated due to failure of one or more allocated nodes. 
     #[allow(non_camel_case_types)]
     NODE_FAIL,
+    /// Other Job state, specifying the concrete job state as a [`String`]
     OTHER(String),
 }
 
 impl JobState {
+    /// Parse SLURM Job state from a [`str`]
     pub fn from_str(s: &str) -> Result<Self, Error> {
         match s {
             "RUNNING" => Ok(Self::RUNNING),
@@ -270,8 +138,8 @@ pub struct ConnectionConfig {
 }
 
 #[cfg(feature = "ssh")]
-impl ConnectionConfig {
-    pub fn default() -> Self {
+impl Default for ConnectionConfig {
+    fn default() -> Self {
         ConnectionConfig {
             host: (String::new(), 22),
             username: String::new(),
@@ -281,6 +149,10 @@ impl ConnectionConfig {
             },
         }
     }
+}
+#[cfg(feature = "ssh")]
+impl ConnectionConfig {
+
     pub fn new(host: (String, u16), username: String, auth: ConnectionAuth) -> Self {
         ConnectionConfig {
             host,
@@ -372,224 +244,4 @@ pub async fn login_with_cfg(cfg: &ConnectionConfig) -> Result<Client, Error> {
     )
     .await?;
     Ok(client)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub enum SqueueMode {
-    #[default]
-    ALL,
-    MINE,
-    JOBIDS(Vec<String>),
-}
-/// Get squeue results using the provided `execute_cmd` function
-pub async fn get_squeue_res<F, Fut>(
-    mode: &SqueueMode,
-    execute_cmd: F,
-) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error>
-where
-    F: FnOnce(String) -> Fut,
-    Fut: Future<Output = Result<String, Error>>,
-{
-    let extra_arg = match mode {
-        SqueueMode::ALL => String::default(),
-        SqueueMode::MINE => String::from("--me"),
-        SqueueMode::JOBIDS(vec) => format!("-j {}", vec.join(",")),
-    };
-    let result = execute_cmd(format!(
-        "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}' {}",
-        extra_arg
-    ))
-    .await?;
-    let res_lines = result.split("\n");
-
-    // For checking columns:
-    // let _column_str = res_lines
-    //     .next()
-    //     .ok_or(Error::msg("No line breaks in output"))?
-    //     .to_string();
-
-    // let columns: Vec<&str> = _column_str.split("|").collect();
-    // if columns != SQUEUE_EXPECTED_COLS {
-    //     eprintln!("Warning! Columns are not identical!");
-    //     eprintln!("{:?} != {:?}", columns, SQUEUE_EXPECTED_COLS);
-    // }
-
-    let time: DateTime<Utc> = SystemTime::now().into();
-    let d: Vec<SqueueRow> = res_lines
-        .filter_map(|line| {
-            if line.is_empty() {
-                return None;
-            }
-            let res = SqueueRow::parse_from_strs(&line.split("|").collect::<Vec<_>>());
-            match res {
-                Ok(row) => Some(row),
-                Err(err) => {
-                    println!("[!] {:?} for {:?}", err, &line);
-                    None
-                }
-            }
-        })
-        .collect();
-    Ok((time, d))
-}
-
-pub async fn get_squeue_res_locally<'a>(
-    mode: &SqueueMode,
-) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
-    get_squeue_res(mode, |cmd_s| async move {
-        // let splits: Vec<&str> = cmd.split(" ").collect();
-        // println!("{:#?}",splits);
-        // cmd.args(splits.iter().skip(1));
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c").arg(&cmd_s);
-        let d = Instant::now();
-        let out = cmd.output()?;
-        let s = String::from_utf8(out.stdout)?;
-        // println!("{:?}",out);
-        println!("Running squeue took {:?}", d.elapsed());
-        Ok(s)
-    })
-    .await
-}
-
-#[cfg(feature = "ssh")]
-pub async fn get_squeue_res_ssh<'a>(
-    client: &'a Client,
-    mode: &SqueueMode,
-) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
-    get_squeue_res(mode, |cmd| async move {
-        let r = client.execute(&cmd).await?;
-        Ok(r.stdout)
-    })
-    .await
-}
-use rayon::prelude::*;
-
-pub async fn squeue_diff<'a, 'b, F, Fut>(
-    get_squeue: F,
-    // client: &'a Client,
-    path: &Path,
-    known_jobs: &'b mut HashMap<String, SqueueRow>,
-    all_ids: &'b mut HashSet<String>,
-) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error>
-where
-    F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<(DateTime<Utc>, Vec<SqueueRow>), Error>>,
-{
-    let (time, rows) = get_squeue().await?;
-    // let (time, rows) = get_squeue_res(client).await?;
-    let cleaned_time = time.to_rfc3339().replace(":", "_");
-    let row_ids = rows
-        .iter()
-        .map(|r| r.job_id.clone())
-        .collect::<HashSet<_>>();
-    // Sanity check
-    if rows.len() != row_ids.len() {
-        eprintln!("Count mismatch: {} != {}", rows.len(), row_ids.len());
-    }
-    create_dir_all(path)?;
-    let id_save_path = path.join(format!("{}.json", cleaned_time));
-    if let Err(e) = serde_json::to_writer(
-        BufWriter::new(File::create(id_save_path).unwrap()),
-        &row_ids,
-    ) {
-        eprintln!("Failed to create file for all jobs ids: {:?}", e);
-    }
-    *known_jobs = rows
-        .par_iter()
-        .map(|row| {
-            if let Some(prev_row) = known_jobs.get(&row.job_id) {
-                // Job is known!
-                // Compute delta
-                let diff = prev_row.diff(row);
-                if !diff.is_empty() {
-                    // Save job delta (e.g., as JSON)
-                    let save_path = path
-                        .join(&row.job_id)
-                        .join(format!("DELTA-{}.json", cleaned_time));
-                    if let Err(e) = serde_json::to_writer(
-                        BufWriter::new(File::create(save_path).unwrap()),
-                        &diff,
-                    ) {
-                        eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
-                    }
-                }
-                // Update prev_row in known_jobs
-                (row.job_id.clone(), row.clone())
-                // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
-                // *prev_row = row.clone();
-            } else {
-                // Job is new!
-                // Double check with all_ids:
-                if all_ids.contains(&row.job_id) {
-                    eprintln!("Job re-appeared! Maybe IDs get reused?");
-                }
-                let folder_path = path.join(&row.job_id);
-                create_dir_all(&folder_path).unwrap();
-                // Save job (e.g., as JSON)
-                let save_path = folder_path.join(format!("{}.json", cleaned_time));
-                if let Err(e) =
-                    serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &row)
-                {
-                    eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
-                }
-                // rw.write().unwrap().insert(row.job_id.clone(), row.clone());
-                (row.job_id.clone(), row.clone())
-            }
-        })
-        .collect();
-    // let known_jobs = rw.into_inner().unwrap();
-    // Remove all known jobs which
-    // known_jobs.retain(|j_id, _| row_ids.contains(j_id));
-    all_ids.extend(row_ids);
-    Ok((time, rows))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        collections::{HashMap, HashSet},
-        path::PathBuf,
-    };
-
-    use crate::{get_squeue_res_locally, SqueueMode};
-    #[cfg(feature = "ssh")]
-    use crate::{login_with_cfg, squeue_diff, ConnectionAuth, ConnectionConfig};
-
-    #[cfg(feature = "ssh")]
-    #[tokio::test]
-    async fn test_squeue_loop() {
-        let login_cfg = ConnectionConfig::new(
-            ("login23-1.hpc.itc.rwth-aachen.de".to_string(), 22),
-            "at325350".to_string(),
-            ConnectionAuth::SSHKey {
-                path: "/home/aarkue/.ssh/id_ed25519".to_string(),
-                passphrase: None,
-            },
-        );
-        let client = login_with_cfg(&login_cfg).await.unwrap();
-        let mut known_jobs = HashMap::default();
-        let mut all_ids = HashSet::default();
-        let path = PathBuf::new().join("test_squeue_loop-14-01-2025");
-        let mut i = 0;
-        loop {
-            squeue_diff(
-                || crate::get_squeue_res_ssh(&client, &SqueueMode::ALL),
-                &path,
-                &mut known_jobs,
-                &mut all_ids,
-            )
-            .await
-            .unwrap();
-            i += 1;
-            println!("Ran for {} iterations, sleeping...", i);
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        }
-    }
-
-    #[tokio::test]
-    async fn test_local() {
-        let res = get_squeue_res_locally(&SqueueMode::ALL).await.unwrap();
-        println!("Got {} results", res.1.len())
-    }
 }

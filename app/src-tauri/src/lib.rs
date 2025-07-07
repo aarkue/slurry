@@ -1,5 +1,5 @@
 use anyhow::Error;
-use chrono::{DateTime, FixedOffset, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 use glob::glob;
 use process_mining::{
     export_ocel_json_path,
@@ -11,11 +11,9 @@ use process_mining::{
 };
 use rayon::prelude::*;
 use slurry::{
-    self, get_squeue_res_ssh,
-    jobs_management::{
+    self, data_extraction::{get_squeue_res_ssh, squeue::SqueueRow, squeue_diff, SqueueMode}, jobs_management::{
         get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus,
-    },
-    login_with_cfg, squeue_diff, Client, ConnectionConfig, JobState, SqueueMode, SqueueRow,
+    }, login_with_cfg, Client, ConnectionConfig, JobState
 };
 use serde::Serialize;
 use std::{
@@ -47,7 +45,7 @@ async fn run_squeue<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<Strin
     }
 }
 use tauri_plugin_dialog::DialogExt;
-use tokio::{sync::Mutex, time::Instant};
+use tokio::time::Instant;
 #[tauri::command]
 async fn start_squeue_loop<'a>(
     app: AppHandle,
@@ -544,7 +542,6 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
             // );
             let all_jobs_ids: HashSet<String> = glob(&src_path.join("*/").to_string_lossy())
                 .expect("Glob failed")
-                .into_iter()
                 .par_bridge()
                 .flat_map(|entry| match entry {
                     Ok(j) => j.file_name().and_then(|n| n.to_str().map(String::from)),
@@ -583,7 +580,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                         // Initial Job Data
                         // This is assumed to then be the first result (i.e., initial job data)
                         let mut row: SqueueRow = serde_json::from_reader(File::open(&d).unwrap())
-                            .inspect_err(|e| eprintln!("Failed to deser.: {d:?}"))
+                            .inspect_err(|e| eprintln!("Failed to deser.: {d:?}, {e:?}"))
                             .unwrap();
 
                         let account = match row.account.as_str() {
@@ -659,7 +656,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                             format!("submit-{}-{}", o.id, events.len()),
                             "Submit Job",
                             row.submit_time
-                                .and_local_timezone(FixedOffset::east_opt(1 * 3600).unwrap())
+                                .and_local_timezone(FixedOffset::east_opt(3600).unwrap())
                                 .single()
                                 .unwrap()
                                 .to_utc(),
@@ -676,19 +673,19 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                 let mut e = OCELEvent::new(
                                     format!("start-{}-{}", o.id, events.len()),
                                     "Job Started",
-                                    st.and_local_timezone(FixedOffset::east_opt(1 * 3600).unwrap())
+                                    st.and_local_timezone(FixedOffset::east_opt(3600).unwrap())
                                         .single()
                                         .unwrap()
                                         .to_utc(),
                                     Vec::new(),
                                     vec![OCELRelationship::new(&o.id, "job"),
-                                    OCELRelationship::new(&format!("group_{}",&row.group), "for"),
+                                    OCELRelationship::new(format!("group_{}",&row.group), "for"),
                                     ],
                                 );
                                 
                                 if let Some(h) = row.exec_host.as_ref() {
                                     execution_hosts.write().unwrap().insert(h.clone());
-                                    e.relationships.push(OCELRelationship::new(&format!("host_{}",row.exec_host.as_ref().unwrap().clone()), "host"));
+                                    e.relationships.push(OCELRelationship::new(format!("host_{}",row.exec_host.as_ref().unwrap().clone()), "host"));
                                 }
                                 start_ev = Some(e);
                             }
@@ -711,7 +708,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                             type D = <SqueueRow as StructDiff>::Diff;
                             let delta: Vec<D> = serde_json::from_reader(File::open(&d).unwrap())
                                 .inspect_err(|e| {
-                                    println!("Serde deser. failed for {} in file {:?}", job_id, d)
+                                    println!("Serde deser. failed for {} in file {:?}; {e:?}", job_id, d)
                                 })
                                 .unwrap();
                             row.apply_mut(delta.clone());
@@ -750,7 +747,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                     }
 
                                     D::account(a) => {
-                                        println!("Account change not handled!");
+                                        println!("Account change for {a} not handled!");
                                         // accounts.write().unwrap().insert(a.clone());
                                         // o.relationships.push(OCELRelationship::new(
                                         //     format!("acc_{}", &row.account),
@@ -816,10 +813,10 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                                 ignore = true;
                                             }
                                             slurry::JobState::OTHER(other) => {
-                                                // eprintln!(
-                                                //     "Unexpected job state change to other: {}",
-                                                //     other
-                                                // );
+                                                eprintln!(
+                                                    "Unexpected job state change to other: {}",
+                                                    other
+                                                );
                                                 ignore = true;
                                             }
                                         }
@@ -856,12 +853,11 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                                 if let Some(e) = start_ev.as_mut() {
                                                     e.time = st
                                                         .and_local_timezone(
-                                                            FixedOffset::east_opt(1 * 3600)
+                                                            FixedOffset::east_opt(3600)
                                                                 .unwrap(),
                                                         )
                                                         .single()
-                                                        .unwrap()
-                                                        .into();
+                                                        .unwrap();
                                                 } else {
                                                     let e = OCELEvent::new(
                                                         format!(
@@ -871,7 +867,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                                         ),
                                                         "Job Started",
                                                         st.and_local_timezone(
-                                                            FixedOffset::east_opt(1 * 3600)
+                                                            FixedOffset::east_opt(3600)
                                                                 .unwrap(),
                                                         )
                                                         .single()
@@ -981,7 +977,7 @@ async fn start_test_job<'a>(state: State<'a, Arc<RwLock<AppState>>>) -> Result<S
         // Get our client back
         x.client = Some(Arc::into_inner(arc).unwrap());
         return match res {
-            Ok((folder_id, job_id)) => Ok(job_id),
+            Ok((_folder_id, job_id)) => Ok(job_id),
             Err(e) => Err(e.into()),
         };
     }

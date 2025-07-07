@@ -6,34 +6,54 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
-use crate::{get_squeue_res_ssh, JobState};
+use crate::{JobState};
 
 type JobID = String;
 type FolderID = String;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Options for creating new SLURM jobs
 pub struct JobOptions {
+    /// The root directory (i.e., where the job should be started)
     pub root_dir: String,
+    /// Files to upload before starting the job (e.g., the binary that should be started or required data files)
     pub files_to_upload: HashSet<JobFilesToUpload>,
+    /// How many CPUs to request per task (`--cpus-per-task`)
     pub num_cpus: usize,
+    /// How long the job should be executed (`--time`)
     pub time: String,
+    /// The bash command to execute
     pub command: String,
+    /// Port forwarding configuartion, if local port on HPC node executing the job should be forwarded
     pub local_forwarding: Option<JobLocalForwarding>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+/// Files to upload before starting a SLURM job
 pub struct JobFilesToUpload {
+    /// Local path to file
     pub local_path: PathBuf,
+    /// Subpath (i.e., in which directory to save the file on the HPC cluster, directories will be recursively created)
     pub remote_subpath: String,
+    /// Filename (i.e., how the file should be names on the HPC cluster)
     pub remote_file_name: String,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+/// Port forwarding options
+/// 
+/// Can be used to forward a port of the executing HPC cluster node to the user's local machine.
+///
+/// Forwarding is done over a relay node directly accessible over SSH (e.g., the login node of the SLURM system)
 pub struct JobLocalForwarding {
+    /// The port where the forwarding should be available locally
     pub local_port: u16,
+    /// The port to use for the relay 
     pub relay_port: u16,
+    /// The address of the relay (e.g., hostname)
     pub relay_addr: String,
 }
+/// Submit a job to SLURM over SSH
 pub async fn submit_job(
     client: Arc<Client>,
     job_options: JobOptions,
@@ -142,23 +162,33 @@ pub async fn submit_job(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status")]
+/// Status of a scheduled SLURM job
 pub enum JobStatus {
+    /// Job is pending
     PENDING {
+        /// Estimated start time of job (if available)
         start_time: Option<NaiveDateTime>,
     },
+    /// Job is running
     RUNNING {
+        /// Start time of job (if available)
         start_time: Option<NaiveDateTime>,
+        /// (Estimated) end time of job (if available)
         end_time: Option<NaiveDateTime>,
     },
+    /// Job has ended
     ENDED {
+        /// End state of Job
         state: JobState,
     },
+    /// Job was not found
     NotFound,
 }
 
+/// Get the status of a SLURM job, given its ID and a SSH client
 pub async fn get_job_status(client: &Client, job_id: &str) -> Result<JobStatus, Error> {
     let (_time, res) =
-        get_squeue_res_ssh(client, &crate::SqueueMode::JOBIDS(vec![job_id.to_string()])).await?;
+        crate::data_extraction::get_squeue_res_ssh(client, &crate::data_extraction::SqueueMode::JOBIDS(vec![job_id.to_string()])).await?;
     if res.is_empty() {
         return Ok(JobStatus::NotFound);
         // return Err(Error::msg("Could not find job."))
