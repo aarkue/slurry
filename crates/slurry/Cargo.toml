@@ -1,8 +1,8 @@
 [package]
 name = "slurry"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
-description = "A crate for managing, analyzing and Creating SLURM jobs for HPC in Rust."
+description = "A crate for managing, analyzing, and creating SLURM jobs for HPC in Rust."
 license = "MIT OR Apache-2.0"
 
 [dependencies]
