@@ -72,17 +72,9 @@ mod test {
 
     #[tokio::test]
     async fn test_port_forwarding() {
-        use crate::{login_with_cfg, ConnectionAuth, ConnectionConfig};
+        use crate::login_with_cfg;
 
-        let login_cfg = ConnectionConfig::new(
-            ("login23-1.hpc.itc.rwth-aachen.de".to_string(), 22),
-            "at325350".to_string(),
-            ConnectionAuth::SSHKey {
-                path: "/home/aarkue/.ssh/id_ed25519".to_string(),
-                passphrase: None,
-            },
-        );
-
+        let login_cfg = crate::misc::get_config_from_env();
         let client = login_with_cfg(&login_cfg).await.unwrap();
         let arc = Arc::new(client);
         ssh_port_forwarding(arc, "127.0.0.1:3000", "127.0.0.1:3000")

@@ -61,35 +61,35 @@ pub struct SqueueRow {
     pub account: String,
     /// "JOBID",
     pub job_id: String,
-    /// "EXEC_HOST",
+    /// "`EXEC_HOST`",
     pub exec_host: Option<String>,
-    /// "MIN_CPUS",
+    /// "`MIN_CPUS`",
     pub min_cpus: usize,
     /// "CPUS",
     pub cpus: usize,
     /// "NODES",
     pub nodes: usize,
-    /// "END_TIME",
+    /// "`END_TIME`",
     pub end_time: Option<NaiveDateTime>,
     /// "DEPENDENCY",
     pub dependency: Option<String>,
     /// "FEATURES",
     pub features: String,
-    /// "ARRAY_JOB_ID",
+    /// "`ARRAY_JOB_ID`",
     pub array_job_id: String,
     /// "GROUP",
     pub group: String,
     /// "STEPJOBID",
-    /// 49848561 or 49869434_2 or 49616001_[3-10%1]
+    /// 49848561 or `49869434_2` or 49616001_[3-10%1]
     pub step_job_id: (String, Option<String>),
-    /// "TIME_LIMIT",
+    /// "`TIME_LIMIT`",
     pub time_limit: Option<Duration>,
-    /// "TIME_LEFT",
+    /// "`TIME_LEFT`",
     #[difference(skip)]
     pub time_left: Option<Duration>,
     /// "NAME",
     pub name: String,
-    /// "MIN_MEMORY",
+    /// "`MIN_MEMORY`",
     pub min_memory: String,
     /// "TIME",
     #[difference(skip)]
@@ -102,11 +102,11 @@ pub struct SqueueRow {
     pub state: JobState,
     /// "REASON",
     pub reason: String,
-    /// "START_TIME",
+    /// "`START_TIME`",
     pub start_time: Option<NaiveDateTime>,
-    /// "SUBMIT_TIME",
+    /// "`SUBMIT_TIME`",
     pub submit_time: NaiveDateTime,
-    /// "WORK_DIR",
+    /// "`WORK_DIR`",
     pub work_dir: PathBuf,
     /// "COMMAND",
     pub command: String,
@@ -366,19 +366,12 @@ mod tests {
 
     use crate::data_extraction::{get_squeue_res_locally, SqueueMode};
     #[cfg(feature = "ssh")]
-    use crate::{login_with_cfg, ConnectionAuth, ConnectionConfig};
+    use crate::login_with_cfg;
 
     #[cfg(feature = "ssh")]
     #[tokio::test]
     async fn test_squeue_loop() {
-        let login_cfg = ConnectionConfig::new(
-            ("login23-1.hpc.itc.rwth-aachen.de".to_string(), 22),
-            "at325350".to_string(),
-            ConnectionAuth::SSHKey {
-                path: "/home/aarkue/.ssh/id_ed25519".to_string(),
-                passphrase: None,
-            },
-        );
+        let login_cfg = crate::misc::get_config_from_env();
         let client = login_with_cfg(&login_cfg).await.unwrap();
         let mut known_jobs = HashMap::default();
         let mut all_ids = HashSet::default();
