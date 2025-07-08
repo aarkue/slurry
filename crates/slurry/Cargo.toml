@@ -22,3 +22,8 @@ rayon = "1.10"
 [features]
 default = []
 ssh = ["dep:tokio", "dep:async-ssh2-tokio"]
+
+
+
+[package.metadata.docs.rs]
+all-features = true

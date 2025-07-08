@@ -11,7 +11,7 @@ use process_mining::{
 };
 use rayon::prelude::*;
 use slurry::{
-    self, data_extraction::{get_squeue_res_ssh, squeue::SqueueRow, squeue_diff, SqueueMode}, jobs_management::{
+    self, data_extraction::{get_squeue_res_ssh, squeue::SqueueRow, squeue_diff, SqueueMode}, job_management::{
         get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus,
     }, login_with_cfg, Client, ConnectionConfig, JobState
 };

@@ -21,18 +21,39 @@ const SERVER_CHECK_METHOD: ServerCheckMethod = ServerCheckMethod::NoCheck;
 pub use async_ssh2_tokio::Client;
 
 #[cfg(feature = "ssh")]
-mod port_forwarding;
-
-#[cfg(feature = "ssh")]
-pub use port_forwarding::ssh_port_forwarding;
-
-#[cfg(feature = "ssh")]
 /// Module for managing (e.g., creating or cancelling) SLURM jobs
-pub mod jobs_management;
+pub mod job_management;
 
 /// Module for extracting data from SLURM systems
 /// e.g., about currently running jobs
 pub mod data_extraction;
+
+/// Module for miscellaneous features
+/// 
+/// e.g., SSH port forwarding
+pub mod misc;
+
+
+#[cfg(feature = "ssh")]
+#[doc(inline)]
+pub use misc::port_forwarding::ssh_port_forwarding;
+
+#[cfg(feature = "ssh")]
+#[doc(inline)]
+pub use job_management::submit_job;
+
+
+#[doc(inline)]
+pub use data_extraction::get_squeue_res_locally;
+
+
+#[cfg(feature = "ssh")]
+#[doc(inline)]
+pub use data_extraction::get_squeue_res_ssh;
+
+
+#[doc(inline)]
+pub use data_extraction::squeue_diff;
 
 // days-hours:minutes:seconds
 fn parse_slurm_duration(s: &str) -> Result<Duration, Error> {
@@ -79,7 +100,7 @@ fn parse_slurm_duration(s: &str) -> Result<Duration, Error> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 /// State of a SLURM job (according to `squeue`)
 /// 
-/// Documentation taken from https://slurm.schedmd.com/squeue.html#SECTION_JOB-STATE-CODES.
+/// Documentation taken from <https://slurm.schedmd.com/squeue.html#SECTION_JOB-STATE-CODES>.
 pub enum JobState {
     /// Job currently has an allocation. 
     RUNNING,
@@ -132,8 +153,11 @@ impl JobState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// A connection config for logging in using SSH
 pub struct ConnectionConfig {
+    /// The host (hostname and port) to connect to
     pub host: (String, u16),
+    /// The username to use for connecting
     pub username: String,
+    /// The authentication configuration
     pub auth: ConnectionAuth,
 }
 
@@ -152,7 +176,7 @@ impl Default for ConnectionConfig {
 }
 #[cfg(feature = "ssh")]
 impl ConnectionConfig {
-
+    /// Create a new connection configuration using the given parameters
     pub fn new(host: (String, u16), username: String, auth: ConnectionAuth) -> Self {
         ConnectionConfig {
             host,
@@ -160,17 +184,19 @@ impl ConnectionConfig {
             auth,
         }
     }
-
+    /// Assign the passed authentication settings to the connection config
     pub fn with_auth(mut self, auth: ConnectionAuth) -> Self {
         self.auth = auth;
         self
     }
 
+    /// Assign the passed username to the connection config
     pub fn with_username(mut self, username: String) -> Self {
         self.username = username;
         self
     }
 
+    /// Assign the passed host to the connection config
     pub fn with_host(mut self, host: (String, u16)) -> Self {
         self.host = host;
         self
@@ -180,16 +206,23 @@ impl ConnectionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "mode")]
 #[cfg(feature = "ssh")]
+/// Authentication Settings for a SHH Connection ([`ConnectionConfig`])
 pub enum ConnectionAuth {
     #[serde(rename = "password-mfa")]
+    /// Login via password and multi-factor-authentication token (MFA)
     PasswordMFA {
+        /// Password
         password: String,
         #[serde(rename = "mfaCode")]
+        /// Multi-Factor-Authentication (MFA) token
         mfa_code: String,
     },
     #[serde(rename = "ssh-key")]
+    /// Login via an SSH key
     SSHKey {
+        /// Path to where the SSH key is stored
         path: String,
+        /// Optional passphrase for the SSH key
         passphrase: Option<String>,
     },
 }
@@ -231,6 +264,7 @@ impl From<&ConnectionAuth> for AuthMethod {
 }
 
 #[cfg(feature = "ssh")]
+/// Login via SSH using the specified configuration
 pub async fn login_with_cfg(cfg: &ConnectionConfig) -> Result<Client, Error> {
     let auth_method = (&cfg.auth).into();
     let client = Client::connect_with_config(
