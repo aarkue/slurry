@@ -1,9 +1,9 @@
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::Error;
-use chrono::{NaiveDateTime};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use structdiff::{Difference,StructDiff};
+use structdiff::{Difference, StructDiff};
 
 use crate::{parse_slurm_duration, JobState};
 use std::{
@@ -54,7 +54,7 @@ pub(crate) const SQUEUE_FORMAT_STR: &str =
 
 #[derive(Debug, Clone, Serialize, Deserialize, Difference)]
 /// Struct for parsed output row of `squeue` command
-/// 
+///
 /// Containg information about a scheduled, running, and completed SLURM job
 pub struct SqueueRow {
     /// "ACCOUNT",
@@ -112,7 +112,6 @@ pub struct SqueueRow {
     pub command: String,
 }
 
-
 impl SqueueRow {
     fn parse_from_strs(vals: &[&str]) -> Result<Self, Error> {
         if vals.len() != 25 {
@@ -162,7 +161,7 @@ impl SqueueRow {
                 .parse()
                 .inspect_err(|err| eprintln!("Priority failed to parse! {err:?}"))?, // 17
             partition: vals[18].to_string(),
-            state: JobState::from_str(vals[19])?,
+            state: vals[19].parse()?,
             reason: vals[20].to_string(),
             start_time: match vals[21] {
                 "N/A" => None,
@@ -174,8 +173,6 @@ impl SqueueRow {
         })
     }
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 /// Parameter for `squeue` extraction, specifying what SLURM jobs to include
@@ -203,8 +200,7 @@ where
         SqueueMode::JOBIDS(vec) => format!("-j {}", vec.join(",")),
     };
     let result = execute_cmd(format!(
-        "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}' {}",
-        extra_arg
+        "squeue -h -a -M all -t all --format='{SQUEUE_FORMAT_STR}' {extra_arg}"
     ))
     .await?;
     let res_lines = result.split("\n");
@@ -241,7 +237,7 @@ where
 }
 
 /// Run and parse `squeue` result locally (i.e., not via SSH)
-pub async fn get_squeue_res_locally<'a>(
+pub async fn get_squeue_res_locally(
     mode: &SqueueMode,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
     get_squeue_res(mode, |cmd_s| async move {
@@ -262,8 +258,8 @@ pub async fn get_squeue_res_locally<'a>(
 
 #[cfg(feature = "ssh")]
 /// Run and parse `squeue` result over SSH
-pub async fn get_squeue_res_ssh<'a>(
-    client: &'a Client,
+pub async fn get_squeue_res_ssh(
+    client: &Client,
     mode: &SqueueMode,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
     get_squeue_res(mode, |cmd| async move {
@@ -275,7 +271,7 @@ pub async fn get_squeue_res_ssh<'a>(
 use rayon::prelude::*;
 
 /// Execute `squeue` and compare the output with (optional) data from previous executions
-pub async fn squeue_diff<'a, 'b, F, Fut>(
+pub async fn squeue_diff<'b, F, Fut>(
     get_squeue: F,
     path: &Path,
     known_jobs: &'b mut HashMap<String, SqueueRow>,
@@ -297,12 +293,12 @@ where
         eprintln!("Count mismatch: {} != {}", rows.len(), row_ids.len());
     }
     create_dir_all(path)?;
-    let id_save_path = path.join(format!("{}.json", cleaned_time));
+    let id_save_path = path.join(format!("{cleaned_time}.json"));
     if let Err(e) = serde_json::to_writer(
         BufWriter::new(File::create(id_save_path).unwrap()),
         &row_ids,
     ) {
-        eprintln!("Failed to create file for all jobs ids: {:?}", e);
+        eprintln!("Failed to create file for all jobs ids: {e:?}");
     }
     *known_jobs = rows
         .par_iter()
@@ -315,13 +311,13 @@ where
                     // Save job delta (e.g., as JSON)
                     let save_path = path
                         .join(&row.job_id)
-                        .join(format!("DELTA-{}.json", cleaned_time));
-                    match serde_json::to_writer(
+                        .join(format!("DELTA-{cleaned_time}.json"));
+                    if let Err(e) = serde_json::to_writer(
                         BufWriter::new(File::create(save_path).unwrap()),
                         &diff,
-                    ) { Err(e) => {
+                    ) {
                         eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
-                    } _ => {}}
+                    }
                 }
                 // Update prev_row in known_jobs
                 (row.job_id.clone(), row.clone())
@@ -336,7 +332,7 @@ where
                 let folder_path = path.join(&row.job_id);
                 create_dir_all(&folder_path).unwrap();
                 // Save job (e.g., as JSON)
-                let save_path = folder_path.join(format!("{}.json", cleaned_time));
+                let save_path = folder_path.join(format!("{cleaned_time}.json"));
                 if let Err(e) =
                     serde_json::to_writer(BufWriter::new(File::create(save_path).unwrap()), &row)
                 {
@@ -353,9 +349,6 @@ where
     all_ids.extend(row_ids);
     Ok((time, rows))
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -389,7 +382,7 @@ mod tests {
             .await
             .unwrap();
             i += 1;
-            println!("Ran for {} iterations, sleeping...", i);
+            println!("Ran for {i} iterations, sleeping...");
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
     }

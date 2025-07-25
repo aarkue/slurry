@@ -10,12 +10,15 @@ use process_mining::{
     OCEL,
 };
 use rayon::prelude::*;
-use slurry::{
-    self, data_extraction::{get_squeue_res_ssh, squeue::SqueueRow, squeue_diff, SqueueMode}, job_management::{
-        get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus,
-    }, login_with_cfg, Client, ConnectionConfig, JobState
-};
 use serde::Serialize;
+use slurry::{
+    self,
+    data_extraction::{get_squeue_res_ssh, squeue::SqueueRow, squeue_diff, SqueueMode},
+    job_management::{
+        get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus,
+    },
+    login_with_cfg, Client, ConnectionConfig, JobState,
+};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -630,10 +633,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                 OCELObjectAttribute::new("state", format!("{:?}", &row.state), dt),
                             ],
                             relationships: vec![
-                                OCELRelationship::new(
-                                    format!("acc_{}", &account),
-                                    "submitted by",
-                                ),
+                                OCELRelationship::new(format!("acc_{}", &account), "submitted by"),
                                 OCELRelationship::new(
                                     format!("group_{}", &row.group),
                                     "submitted by group",
@@ -678,14 +678,21 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                         .unwrap()
                                         .to_utc(),
                                     Vec::new(),
-                                    vec![OCELRelationship::new(&o.id, "job"),
-                                    OCELRelationship::new(format!("group_{}",&row.group), "for"),
+                                    vec![
+                                        OCELRelationship::new(&o.id, "job"),
+                                        OCELRelationship::new(
+                                            format!("group_{}", &row.group),
+                                            "for",
+                                        ),
                                     ],
                                 );
-                                
+
                                 if let Some(h) = row.exec_host.as_ref() {
                                     execution_hosts.write().unwrap().insert(h.clone());
-                                    e.relationships.push(OCELRelationship::new(format!("host_{}",row.exec_host.as_ref().unwrap().clone()), "host"));
+                                    e.relationships.push(OCELRelationship::new(
+                                        format!("host_{}", row.exec_host.as_ref().unwrap().clone()),
+                                        "host",
+                                    ));
                                 }
                                 start_ev = Some(e);
                             }
@@ -708,7 +715,10 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                             type D = <SqueueRow as StructDiff>::Diff;
                             let delta: Vec<D> = serde_json::from_reader(File::open(&d).unwrap())
                                 .inspect_err(|e| {
-                                    println!("Serde deser. failed for {} in file {:?}; {e:?}", job_id, d)
+                                    println!(
+                                        "Serde deser. failed for {} in file {:?}; {e:?}",
+                                        job_id, d
+                                    )
                                 })
                                 .unwrap();
                             row.apply_mut(delta.clone());
@@ -853,8 +863,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                                 if let Some(e) = start_ev.as_mut() {
                                                     e.time = st
                                                         .and_local_timezone(
-                                                            FixedOffset::east_opt(3600)
-                                                                .unwrap(),
+                                                            FixedOffset::east_opt(3600).unwrap(),
                                                         )
                                                         .single()
                                                         .unwrap();
@@ -867,8 +876,7 @@ async fn extract_ocel(app: AppHandle) -> Result<String, CmdError> {
                                                         ),
                                                         "Job Started",
                                                         st.and_local_timezone(
-                                                            FixedOffset::east_opt(3600)
-                                                                .unwrap(),
+                                                            FixedOffset::east_opt(3600).unwrap(),
                                                         )
                                                         .single()
                                                         .unwrap()

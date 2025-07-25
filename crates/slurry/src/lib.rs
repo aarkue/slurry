@@ -7,8 +7,7 @@
 )]
 #![doc = include_str!("../README.md")]
 
-
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
@@ -29,10 +28,9 @@ pub mod job_management;
 pub mod data_extraction;
 
 /// Module for miscellaneous features
-/// 
+///
 /// e.g., SSH port forwarding
 pub mod misc;
-
 
 #[cfg(feature = "ssh")]
 #[doc(inline)]
@@ -42,15 +40,12 @@ pub use misc::port_forwarding::ssh_port_forwarding;
 #[doc(inline)]
 pub use job_management::submit_job;
 
-
 #[doc(inline)]
 pub use data_extraction::get_squeue_res_locally;
-
 
 #[cfg(feature = "ssh")]
 #[doc(inline)]
 pub use data_extraction::get_squeue_res_ssh;
-
 
 #[doc(inline)]
 pub use data_extraction::squeue_diff;
@@ -99,36 +94,36 @@ fn parse_slurm_duration(s: &str) -> Result<Duration, Error> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 /// State of a SLURM job (according to `squeue`)
-/// 
+///
 /// Documentation taken from <https://slurm.schedmd.com/squeue.html#SECTION_JOB-STATE-CODES>.
 pub enum JobState {
-    /// Job currently has an allocation. 
+    /// Job currently has an allocation.
     RUNNING,
-    /// Job is awaiting resource allocation. 
+    /// Job is awaiting resource allocation.
     PENDING,
-    /// Job is in the process of completing. Some processes on some nodes may still be active. 
+    /// Job is in the process of completing. Some processes on some nodes may still be active.
     COMPLETING,
-    /// Job has terminated all processes on all nodes with an exit code of zero. 
+    /// Job has terminated all processes on all nodes with an exit code of zero.
     COMPLETED,
-    /// Job was explicitly cancelled by the user or system administrator. The job may or may not have been initiated. 
+    /// Job was explicitly cancelled by the user or system administrator. The job may or may not have been initiated.
     CANCELLED,
-    /// Job terminated with non-zero exit code or other failure condition. 
+    /// Job terminated with non-zero exit code or other failure condition.
     FAILED,
-    /// Job terminated upon reaching its time limit. 
+    /// Job terminated upon reaching its time limit.
     TIMEOUT,
-    /// Job experienced out of memory error. 
+    /// Job experienced out of memory error.
     #[allow(non_camel_case_types)]
     OUT_OF_MEMORY,
-    /// Job terminated due to failure of one or more allocated nodes. 
+    /// Job terminated due to failure of one or more allocated nodes.
     #[allow(non_camel_case_types)]
     NODE_FAIL,
     /// Other Job state, specifying the concrete job state as a [`String`]
     OTHER(String),
 }
+impl FromStr for JobState {
+    type Err = Error;
 
-impl JobState {
-    /// Parse SLURM Job state from a [`str`]
-    pub fn from_str(s: &str) -> Result<Self, Error> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "RUNNING" => Ok(Self::RUNNING),
             "PENDING" => Ok(Self::PENDING),
@@ -140,14 +135,12 @@ impl JobState {
             "OUT_OF_MEMORY" => Ok(Self::OUT_OF_MEMORY),
             "NODE_FAIL" => Ok(Self::NODE_FAIL),
             s => {
-                println!("Unhandled job state: {} detected!", s);
+                println!("Unhandled job state: {s} detected!");
                 Ok(Self::OTHER(s.to_string()))
             }
         }
     }
 }
-
-
 
 #[cfg(feature = "ssh")]
 #[derive(Debug, Clone, Serialize, Deserialize)]

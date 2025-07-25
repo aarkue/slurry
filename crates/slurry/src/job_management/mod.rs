@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
-use crate::{JobState};
+use crate::JobState;
 
 type JobID = String;
 type FolderID = String;
@@ -41,14 +41,14 @@ pub struct JobFilesToUpload {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 /// Port forwarding options
-/// 
+///
 /// Can be used to forward a port of the executing HPC cluster node to the user's local machine.
 ///
 /// Forwarding is done over a relay node directly accessible over SSH (e.g., the login node of the SLURM system)
 pub struct JobLocalForwarding {
     /// The port where the forwarding should be available locally
     pub local_port: u16,
-    /// The port to use for the relay 
+    /// The port to use for the relay
     pub relay_port: u16,
     /// The address of the relay (e.g., hostname)
     pub relay_addr: String,
@@ -150,7 +150,7 @@ pub async fn submit_job(
 
     // Schedule job & get job id
     let sbatch_out = client
-        .execute(&format!("cd {}/{} && sbatch start.sh", root_dir, folder_id))
+        .execute(&format!("cd {root_dir}/{folder_id} && sbatch start.sh"))
         .await?;
     let job_id = sbatch_out.stdout.split(" ").last();
     if let Some(job_id) = job_id {
@@ -187,8 +187,11 @@ pub enum JobStatus {
 
 /// Get the status of a SLURM job, given its ID and a SSH client
 pub async fn get_job_status(client: &Client, job_id: &str) -> Result<JobStatus, Error> {
-    let (_time, res) =
-        crate::data_extraction::get_squeue_res_ssh(client, &crate::data_extraction::SqueueMode::JOBIDS(vec![job_id.to_string()])).await?;
+    let (_time, res) = crate::data_extraction::get_squeue_res_ssh(
+        client,
+        &crate::data_extraction::SqueueMode::JOBIDS(vec![job_id.to_string()]),
+    )
+    .await?;
     if res.is_empty() {
         return Ok(JobStatus::NotFound);
         // return Err(Error::msg("Could not find job."))
