@@ -3665,30 +3665,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust_slurm"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "async-ssh2-tokio",
- "chrono",
- "glob",
- "rayon",
- "serde",
- "serde_json",
- "structdiff",
- "tokio",
-]
-
-[[package]]
-name = "rust_slurm_cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "rust_slurm",
- "tokio",
-]
-
-[[package]]
 name = "rustc-demangle"
 version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4063,6 +4039,51 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "slurry"
+version = "0.1.4"
+dependencies = [
+ "anyhow",
+ "async-ssh2-tokio",
+ "chrono",
+ "glob",
+ "rayon",
+ "serde",
+ "serde_json",
+ "structdiff",
+ "tokio",
+]
+
+[[package]]
+name = "slurry_app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "glob",
+ "process_mining",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "slurry",
+ "structdiff",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-shell",
+ "tokio",
+]
+
+[[package]]
+name = "slurry_cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "slurry",
+ "tokio",
 ]
 
 [[package]]
@@ -5117,27 +5138,6 @@ checksum = "93d59ca99a559661b96bf898d8fce28ed87935fd2bea9f05983c1464dd6c71b1"
 dependencies = [
  "getrandom 0.3.1",
  "serde",
-]
-
-[[package]]
-name = "vashpc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "glob",
- "process_mining",
- "rayon",
- "regex",
- "rust_slurm",
- "serde",
- "serde_json",
- "structdiff",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-shell",
- "tokio",
 ]
 
 [[package]]

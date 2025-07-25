@@ -9,6 +9,10 @@ use tokio::{
     task::{self, JoinHandle},
 };
 
+
+/// Perform port forwarding over SSH
+/// 
+/// Using the given client, the local port on the SSH machine will be forwarded to the remote port (e.g., the user's machine)
 pub async fn ssh_port_forwarding<S: AsRef<str>>(
     client: Arc<async_ssh2_tokio::Client>,
     local_addr: S,
@@ -41,7 +45,8 @@ pub async fn ssh_port_forwarding<S: AsRef<str>>(
                     Ok(channel) => {
                         let mut ssh_stream = channel.into_stream();
 
-                        match tokio::io::copy_bidirectional(&mut socket, &mut ssh_stream).await {
+                        let copy_bidirectional = tokio::io::copy_bidirectional(&mut socket, &mut ssh_stream).await;
+                        match copy_bidirectional {
                             Ok((bytes_to_remote, bytes_to_local)) => {
                                 println!(
                             "Connection closed. Sent {} bytes to remote, received {} bytes from remote",
@@ -63,21 +68,13 @@ pub async fn ssh_port_forwarding<S: AsRef<str>>(
 mod test {
     use std::sync::Arc;
 
-    use crate::port_forwarding::ssh_port_forwarding;
+    use crate::misc::port_forwarding::ssh_port_forwarding;
 
     #[tokio::test]
     async fn test_port_forwarding() {
-        use crate::{login_with_cfg, ConnectionAuth, ConnectionConfig};
+        use crate::login_with_cfg;
 
-        let login_cfg = ConnectionConfig::new(
-            ("login23-1.hpc.itc.rwth-aachen.de".to_string(), 22),
-            "at325350".to_string(),
-            ConnectionAuth::SSHKey {
-                path: "/home/aarkue/.ssh/id_ed25519".to_string(),
-                passphrase: None,
-            },
-        );
-
+        let login_cfg = crate::misc::get_config_from_env();
         let client = login_with_cfg(&login_cfg).await.unwrap();
         let arc = Arc::new(client);
         ssh_port_forwarding(arc, "127.0.0.1:3000", "127.0.0.1:3000")

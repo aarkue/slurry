@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use rust_slurm::{get_squeue_res_locally, squeue_diff, SqueueMode};
+use slurry::data_extraction::{get_squeue_res_locally, squeue_diff, SqueueMode};
 
 /// Run squeue loop and save delta data
 #[derive(Parser, Debug)]

@@ -1,37 +1,28 @@
+use std::{path::PathBuf, time::Duration};
+
+use anyhow::Error;
+use chrono::{NaiveDateTime};
+use serde::{Deserialize, Serialize};
+use structdiff::{Difference,StructDiff};
+
+use crate::{parse_slurm_duration, JobState};
 use std::{
     collections::{HashMap, HashSet},
     fs::{create_dir_all, File},
     future::Future,
     io::BufWriter,
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
-    time::{Duration, Instant, SystemTime},
+    time::{Instant, SystemTime},
 };
 
-use anyhow::Error;
-use chrono::{DateTime, NaiveDateTime, Utc};
+#[cfg(feature = "ssh")]
+use async_ssh2_tokio::Client;
+use chrono::{DateTime, Utc};
 use rayon::iter::IntoParallelRefIterator;
-use serde::{Deserialize, Serialize};
-use structdiff::{Difference, StructDiff};
-
-#[cfg(feature = "ssh")]
-use async_ssh2_tokio::client::{AuthKeyboardInteractive, AuthMethod, ServerCheckMethod};
-#[cfg(feature = "ssh")]
-const SERVER_CHECK_METHOD: ServerCheckMethod = ServerCheckMethod::NoCheck;
-#[cfg(feature = "ssh")]
-pub use async_ssh2_tokio::Client;
-
-#[cfg(feature = "ssh")]
-mod port_forwarding;
-
-#[cfg(feature = "ssh")]
-pub use port_forwarding::ssh_port_forwarding;
-
-#[cfg(feature = "ssh")]
-pub mod jobs_management;
 
 // https://slurm.schedmd.com/squeue.html
-const SQUEUE_FORMAT_STR: &str =
+pub(crate) const SQUEUE_FORMAT_STR: &str =
     "%a|%A|%B|%c|%C|%D|%e|%E|%f|%F|%G|%i|%l|%L|%j|%m|%M|%p|%P|%T|%r|%S|%V|%Z|%o";
 // const SQUEUE_EXPECTED_COLS: &[&str] = &[
 //     "ACCOUNT",
@@ -62,106 +53,68 @@ const SQUEUE_FORMAT_STR: &str =
 // ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Difference)]
+/// Struct for parsed output row of `squeue` command
+/// 
+/// Containg information about a scheduled, running, and completed SLURM job
 pub struct SqueueRow {
-    // "ACCOUNT",
+    /// "ACCOUNT",
     pub account: String,
-    // "JOBID",
+    /// "JOBID",
     pub job_id: String,
-    // "EXEC_HOST",
+    /// "`EXEC_HOST`",
     pub exec_host: Option<String>,
-    // "MIN_CPUS",
+    /// "`MIN_CPUS`",
     pub min_cpus: usize,
-    // "CPUS",
+    /// "CPUS",
     pub cpus: usize,
-    // "NODES",
+    /// "NODES",
     pub nodes: usize,
-    // "END_TIME",
+    /// "`END_TIME`",
     pub end_time: Option<NaiveDateTime>,
-    // "DEPENDENCY",
+    /// "DEPENDENCY",
     pub dependency: Option<String>,
-    // "FEATURES",
+    /// "FEATURES",
     pub features: String,
-    // "ARRAY_JOB_ID",
+    /// "`ARRAY_JOB_ID`",
     pub array_job_id: String,
-    // "GROUP",
+    /// "GROUP",
     pub group: String,
-    // "STEPJOBID",
-    // 49848561 or 49869434_2 or 49616001_[3-10%1]
+    /// "STEPJOBID",
+    /// 49848561 or `49869434_2` or 49616001_[3-10%1]
     pub step_job_id: (String, Option<String>),
-    // "TIME_LIMIT",
+    /// "`TIME_LIMIT`",
     pub time_limit: Option<Duration>,
-    // "TIME_LEFT",
+    /// "`TIME_LEFT`",
     #[difference(skip)]
     pub time_left: Option<Duration>,
-    // "NAME",
+    /// "NAME",
     pub name: String,
-    // "MIN_MEMORY",
+    /// "`MIN_MEMORY`",
     pub min_memory: String,
-    // "TIME",
+    /// "TIME",
     #[difference(skip)]
     pub time: Option<Duration>,
-    // "PRIORITY",
+    /// "PRIORITY",
     pub priority: f64,
-    // "PARTITION",
+    /// "PARTITION",
     pub partition: String,
-    // "STATE",
+    /// "STATE",
     pub state: JobState,
-    // "REASON",
+    /// "REASON",
     pub reason: String,
-    // "START_TIME",
+    /// "`START_TIME`",
     pub start_time: Option<NaiveDateTime>,
-    // "SUBMIT_TIME",
+    /// "`SUBMIT_TIME`",
     pub submit_time: NaiveDateTime,
-    // "WORK_DIR",
+    /// "`WORK_DIR`",
     pub work_dir: PathBuf,
-    // "COMMAND",
+    /// "COMMAND",
     pub command: String,
 }
 
-// days-hours:minutes:seconds
-fn parse_slurm_duration(s: &str) -> Result<Duration, Error> {
-    let mut dur = Duration::default();
-
-    let v: Vec<_> = s.split("-").collect();
-    let mut hms_part = v[0];
-    let has_days_part: bool = v.len() > 1;
-    if has_days_part {
-        // days part exists
-        let days: u64 = v[0].parse()?;
-        dur += Duration::from_secs(days * 60 * 60 * 24);
-        hms_part = v[1];
-    }
-    let hms = hms_part.split(":").collect::<Vec<_>>();
-
-    if hms.len() == 3 {
-        let hours: u64 = hms[0].parse()?;
-        let mins: u64 = hms[1].parse()?;
-        let secs: u64 = hms[1].parse()?;
-        dur += Duration::from_secs(secs + 60 * mins + 60 * 60 * hours);
-    } else if hms.len() == 2 {
-        let mins: u64 = hms[0].parse()?;
-        let secs: u64 = hms[1].parse()?;
-        dur += Duration::from_secs(secs + 60 * mins);
-    } else if hms.len() == 1 {
-        if has_days_part {
-            // then: hours
-            let hours: u64 = hms[0].parse()?;
-            dur += Duration::from_secs(60 * 60 * hours);
-        } else {
-            // otherwise: minutes
-            let mins: u64 = hms[0].parse()?;
-            dur += Duration::from_secs(60 * mins);
-        }
-    } else {
-        println!("Parse Error: Got {} splits for duration {}.", hms.len(), s);
-        return Err(Error::msg("Invalid duration format."));
-    }
-
-    Ok(dur)
-}
 
 impl SqueueRow {
-    pub fn parse_from_strs(vals: &[&str]) -> Result<Self, Error> {
+    fn parse_from_strs(vals: &[&str]) -> Result<Self, Error> {
         if vals.len() != 25 {
             return Err(Error::msg("Invalid length of values."));
         }
@@ -222,162 +175,20 @@ impl SqueueRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum JobState {
-    RUNNING,
-    PENDING,
-    COMPLETING,
-    COMPLETED,
-    CANCELLED,
-    FAILED,
-    TIMEOUT,
-    #[allow(non_camel_case_types)]
-    OUT_OF_MEMORY,
-    #[allow(non_camel_case_types)]
-    NODE_FAIL,
-    OTHER(String),
-}
 
-impl JobState {
-    pub fn from_str(s: &str) -> Result<Self, Error> {
-        match s {
-            "RUNNING" => Ok(Self::RUNNING),
-            "PENDING" => Ok(Self::PENDING),
-            "COMPLETING" => Ok(Self::COMPLETING),
-            "COMPLETED" => Ok(Self::COMPLETED),
-            "CANCELLED" => Ok(Self::CANCELLED),
-            "FAILED" => Ok(Self::FAILED),
-            "TIMEOUT" => Ok(Self::TIMEOUT),
-            "OUT_OF_MEMORY" => Ok(Self::OUT_OF_MEMORY),
-            "NODE_FAIL" => Ok(Self::NODE_FAIL),
-            s => {
-                println!("Unhandled job state: {} detected!", s);
-                Ok(Self::OTHER(s.to_string()))
-            }
-        }
-    }
-}
-
-#[cfg(feature = "ssh")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectionConfig {
-    pub host: (String, u16),
-    pub username: String,
-    pub auth: ConnectionAuth,
-}
-
-#[cfg(feature = "ssh")]
-impl ConnectionConfig {
-    pub fn default() -> Self {
-        ConnectionConfig {
-            host: (String::new(), 22),
-            username: String::new(),
-            auth: ConnectionAuth::PasswordMFA {
-                password: String::new(),
-                mfa_code: String::new(),
-            },
-        }
-    }
-    pub fn new(host: (String, u16), username: String, auth: ConnectionAuth) -> Self {
-        ConnectionConfig {
-            host,
-            username,
-            auth,
-        }
-    }
-
-    pub fn with_auth(mut self, auth: ConnectionAuth) -> Self {
-        self.auth = auth;
-        self
-    }
-
-    pub fn with_username(mut self, username: String) -> Self {
-        self.username = username;
-        self
-    }
-
-    pub fn with_host(mut self, host: (String, u16)) -> Self {
-        self.host = host;
-        self
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "mode")]
-#[cfg(feature = "ssh")]
-pub enum ConnectionAuth {
-    #[serde(rename = "password-mfa")]
-    PasswordMFA {
-        password: String,
-        #[serde(rename = "mfaCode")]
-        mfa_code: String,
-    },
-    #[serde(rename = "ssh-key")]
-    SSHKey {
-        path: String,
-        passphrase: Option<String>,
-    },
-}
-
-#[cfg(feature = "ssh")]
-impl From<ConnectionAuth> for AuthMethod {
-    fn from(val: ConnectionAuth) -> Self {
-        match val {
-            ConnectionAuth::PasswordMFA { password, mfa_code } => {
-                AuthMethod::with_keyboard_interactive(
-                    AuthKeyboardInteractive::new()
-                        .with_response("Password", password)
-                        .with_response("Two-factor code", mfa_code),
-                )
-            }
-            ConnectionAuth::SSHKey { path, passphrase } => {
-                AuthMethod::with_key_file(path, passphrase.as_deref())
-            }
-        }
-    }
-}
-
-#[cfg(feature = "ssh")]
-impl From<&ConnectionAuth> for AuthMethod {
-    fn from(val: &ConnectionAuth) -> Self {
-        match val {
-            ConnectionAuth::PasswordMFA { password, mfa_code } => {
-                AuthMethod::with_keyboard_interactive(
-                    AuthKeyboardInteractive::new()
-                        .with_response("Password", password.clone())
-                        .with_response("Two-factor code", mfa_code.clone()),
-                )
-            }
-            ConnectionAuth::SSHKey { path, passphrase } => {
-                AuthMethod::with_key_file(path, passphrase.as_deref())
-            }
-        }
-    }
-}
-
-#[cfg(feature = "ssh")]
-pub async fn login_with_cfg(cfg: &ConnectionConfig) -> Result<Client, Error> {
-    let auth_method = (&cfg.auth).into();
-    let client = Client::connect_with_config(
-        cfg.host.clone(),
-        &cfg.username,
-        auth_method,
-        SERVER_CHECK_METHOD,
-        async_ssh2_tokio::Config {
-            ..Default::default()
-        },
-    )
-    .await?;
-    Ok(client)
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// Parameter for `squeue` extraction, specifying what SLURM jobs to include
 pub enum SqueueMode {
     #[default]
+    /// Include all SLURM jobs
     ALL,
+    /// Include only SLURM jobs of active user
     MINE,
+    /// Include only the specified SLURM jobs (given by their IDs)
     JOBIDS(Vec<String>),
 }
+/// Get squeue results using the provided `execute_cmd` function
 pub async fn get_squeue_res<F, Fut>(
     mode: &SqueueMode,
     execute_cmd: F,
@@ -429,6 +240,7 @@ where
     Ok((time, d))
 }
 
+/// Run and parse `squeue` result locally (i.e., not via SSH)
 pub async fn get_squeue_res_locally<'a>(
     mode: &SqueueMode,
 ) -> Result<(DateTime<Utc>, Vec<SqueueRow>), Error> {
@@ -449,6 +261,7 @@ pub async fn get_squeue_res_locally<'a>(
 }
 
 #[cfg(feature = "ssh")]
+/// Run and parse `squeue` result over SSH
 pub async fn get_squeue_res_ssh<'a>(
     client: &'a Client,
     mode: &SqueueMode,
@@ -461,9 +274,9 @@ pub async fn get_squeue_res_ssh<'a>(
 }
 use rayon::prelude::*;
 
+/// Execute `squeue` and compare the output with (optional) data from previous executions
 pub async fn squeue_diff<'a, 'b, F, Fut>(
     get_squeue: F,
-    // client: &'a Client,
     path: &Path,
     known_jobs: &'b mut HashMap<String, SqueueRow>,
     all_ids: &'b mut HashSet<String>,
@@ -503,12 +316,12 @@ where
                     let save_path = path
                         .join(&row.job_id)
                         .join(format!("DELTA-{}.json", cleaned_time));
-                    if let Err(e) = serde_json::to_writer(
+                    match serde_json::to_writer(
                         BufWriter::new(File::create(save_path).unwrap()),
                         &diff,
-                    ) {
+                    ) { Err(e) => {
                         eprintln!("Failed to create file for {}: {:?}", row.job_id, e);
-                    }
+                    } _ => {}}
                 }
                 // Update prev_row in known_jobs
                 (row.job_id.clone(), row.clone())
@@ -541,6 +354,9 @@ where
     Ok((time, rows))
 }
 
+
+
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -548,29 +364,24 @@ mod tests {
         path::PathBuf,
     };
 
-    use crate::{get_squeue_res_locally, SqueueMode};
+    use crate::data_extraction::{get_squeue_res_locally, SqueueMode};
     #[cfg(feature = "ssh")]
-    use crate::{login_with_cfg, squeue_diff, ConnectionAuth, ConnectionConfig};
+    use crate::login_with_cfg;
 
     #[cfg(feature = "ssh")]
     #[tokio::test]
     async fn test_squeue_loop() {
-        let login_cfg = ConnectionConfig::new(
-            ("login23-1.hpc.itc.rwth-aachen.de".to_string(), 22),
-            "at325350".to_string(),
-            ConnectionAuth::SSHKey {
-                path: "/home/aarkue/.ssh/id_ed25519".to_string(),
-                passphrase: None,
-            },
-        );
+        let login_cfg = crate::misc::get_config_from_env();
         let client = login_with_cfg(&login_cfg).await.unwrap();
         let mut known_jobs = HashMap::default();
         let mut all_ids = HashSet::default();
         let path = PathBuf::new().join("test_squeue_loop-14-01-2025");
         let mut i = 0;
         loop {
+            use crate::data_extraction::{get_squeue_res_ssh, squeue_diff};
+
             squeue_diff(
-                || crate::get_squeue_res_ssh(&client, &SqueueMode::ALL),
+                || get_squeue_res_ssh(&client, &SqueueMode::ALL),
                 &path,
                 &mut known_jobs,
                 &mut all_ids,
