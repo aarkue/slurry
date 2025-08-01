@@ -15,14 +15,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 glob = "0.3.1"
 structdiff = {version = "0.7.1", features = ["serde","debug_diffs"]}
-tokio = {version = "1.43", features = ["full"], optional = true}
+tokio = {version = "1.43", features = ["full"]}
 async-ssh2-tokio = { version = "=0.8.12" , optional = true}
 rayon = "1.10"
-
+process_mining = {git = "https://github.com/aarkue/rust4pm.git", optional = true}
+regex = {version = "1.11.1", optional = true}
 
 [features]
 default = []
-ssh = ["dep:tokio", "dep:async-ssh2-tokio"]
+ssh = ["dep:async-ssh2-tokio"]
+event_data_extraction = ["dep:process_mining", "dep:regex"]
 
 
 

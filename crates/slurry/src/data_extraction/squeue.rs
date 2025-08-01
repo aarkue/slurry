@@ -357,6 +357,7 @@ mod tests {
         path::PathBuf,
     };
 
+
     use crate::data_extraction::{get_squeue_res_locally, SqueueMode};
     #[cfg(feature = "ssh")]
     use crate::login_with_cfg;
