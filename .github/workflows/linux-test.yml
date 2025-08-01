@@ -29,6 +29,11 @@ jobs:
     - name: Check formatting
       working-directory: ./crates/slurry
       run: source "$HOME/.cargo/env" && cargo fmt --all --check
+    - name: Check docs
+      working-directory: ./crates/slurry
+      run: source "$HOME/.cargo/env" && cargo doc --all-features
+      env:
+        RUSTDOCFLAGS: -D warnings
     # - name: Run tests
     #   run: source "$HOME/.cargo/env" && cargo test --verbose --all-features
     #   working-directory: ./crates/slurry

@@ -14,7 +14,7 @@ use serde::Serialize;
 use slurry::{
     self,
     data_extraction::{get_squeue_res_ssh, squeue::SqueueRow, squeue_diff, SqueueMode},
-    event_data_extraction::extract_ocel_from_slurm_diffs,
+    event_log_extraction::extract_ocel_from_slurm_diffs,
     job_management::{
         get_job_status, submit_job, JobFilesToUpload, JobLocalForwarding, JobOptions, JobStatus,
     },

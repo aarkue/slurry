@@ -24,7 +24,7 @@ regex = {version = "1.11.1", optional = true}
 [features]
 default = []
 ssh = ["dep:async-ssh2-tokio"]
-event_data_extraction = ["dep:process_mining", "dep:regex"]
+event_log_extraction = ["dep:process_mining", "dep:regex"]
 
 
 

@@ -32,9 +32,11 @@ pub mod data_extraction;
 /// e.g., SSH port forwarding
 pub mod misc;
 
-#[cfg(feature = "event_data_extraction")]
-/// Module for extracting event data using SLURM
-pub mod event_data_extraction;
+#[cfg(feature = "event_log_extraction")]
+/// Module for extracting event logs for process mining using SLURM
+///
+/// Requires the `event_log_extraction` feature to be enabled.
+pub mod event_log_extraction;
 
 #[cfg(feature = "ssh")]
 #[doc(inline)]

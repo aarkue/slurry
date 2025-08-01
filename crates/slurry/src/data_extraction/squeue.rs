@@ -357,7 +357,6 @@ mod tests {
         path::PathBuf,
     };
 
-
     use crate::data_extraction::{get_squeue_res_locally, SqueueMode};
     #[cfg(feature = "ssh")]
     use crate::login_with_cfg;
@@ -365,11 +364,13 @@ mod tests {
     #[cfg(feature = "ssh")]
     #[tokio::test]
     async fn test_squeue_loop() {
+        use std::fs::remove_dir_all;
+
         let login_cfg = crate::misc::get_config_from_env();
         let client = login_with_cfg(&login_cfg).await.unwrap();
         let mut known_jobs = HashMap::default();
         let mut all_ids = HashSet::default();
-        let path = PathBuf::new().join("test_squeue_loop-14-01-2025");
+        let path = PathBuf::new().join("test_squeue_loop");
         let mut i = 0;
         loop {
             use crate::data_extraction::{get_squeue_res_ssh, squeue_diff};
@@ -384,8 +385,12 @@ mod tests {
             .unwrap();
             i += 1;
             println!("Ran for {i} iterations, sleeping...");
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            if i >= 2 {
+                break;
+            }
         }
+        remove_dir_all(path).unwrap();
     }
 
     #[tokio::test]

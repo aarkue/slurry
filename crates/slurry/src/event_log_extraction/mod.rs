@@ -389,9 +389,7 @@ pub fn extract_ocel_from_slurm_diffs(path: impl AsRef<Path>) -> Result<OCEL, any
                                         ignore = true;
                                     }
                                     crate::JobState::OTHER(other) => {
-                                        eprintln!(
-                                            "Unexpected job state change to other: {other}"
-                                        );
+                                        eprintln!("Unexpected job state change to other: {other}");
                                         ignore = true;
                                     }
                                 }
